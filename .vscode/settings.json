@@ -1,0 +1,25 @@
+{
+  "search.exclude": {
+    "**/.vs": true,
+    "**/Binaries": true,
+    "**/DerivedDataCache": true,
+    "**/Intermediate": true,
+    "**/Saved": true
+  },
+  "files.watcherExclude": {
+    "**/.vs/**": true,
+    "**/Binaries/**": true,
+    "**/DerivedDataCache/**": true,
+    "**/Intermediate/**": true,
+    "**/Saved/**": true
+  },
+  "files.exclude": {
+    "**/.vs": true,
+    "**/Binaries": true,
+    "**/DerivedDataCache": true,
+    "**/Intermediate": true,
+    "**/Saved": true
+  },
+  "editor.semanticHighlighting.enabled": true,
+  "C_Cpp.loggingLevel": "Warning"
+}

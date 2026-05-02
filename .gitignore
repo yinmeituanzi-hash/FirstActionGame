@@ -1,0 +1,49 @@
+# Unreal Engine generated folders
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+
+# Visual Studio / Rider / IDE user data
+.vs/
+.idea/
+*.VC.db
+*.VC.opendb
+*.suo
+*.user
+*.userprefs
+
+# Generated project files
+*.sln
+*.xcodeproj
+*.xcworkspace
+
+# Personal workspace files
+*.code-workspace
+
+# Local tools
+UnrealVersionSelector.exe
+
+# Raw source asset files
+Source/FBX/
+Source/Maya/
+Source/Motionbuilder/
+Source/SKMannequin_A_Pose/
+Source/SKMannequin_T_Pose/
+
+# Project docs kept local
+Docs/
+
+# Local editor defaults
+Config/DefaultEditorPerProjectUserSettings.ini
+
+# Template and starter content not needed in repo
+Content/StarterContent/
+Content/ThirdPerson/Maps/
+Content/ThirdPerson/Blueprints/BP_ThirdPersonCharacter.uasset
+Content/__ExternalActors__/ThirdPerson/Maps/ThirdPersonMap/
+Content/__ExternalObjects__/ThirdPerson/Maps/ThirdPersonMap/
+
+# OS junk
+Thumbs.db
+Desktop.ini
