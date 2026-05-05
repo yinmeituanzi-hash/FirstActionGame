@@ -23,7 +23,7 @@ class ACTIONGAME_API AActionMonsterCharacter : public AActionCharacterBase
 	GENERATED_BODY()
 
 public:
-	AActionMonsterCharacter();
+	AActionMonsterCharacter(const FObjectInitializer& ObjectInitializer);
 
 	virtual void ApplyDamage(float InDamage) override;
 	virtual void Die() override;

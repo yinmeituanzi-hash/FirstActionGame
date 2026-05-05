@@ -2,7 +2,23 @@
 
 #include "CoreMinimal.h"
 #include "GameFramework/Character.h"
+#include "GameplayTagAssetInterface.h"
+#include "GameplayTagContainer.h"
 #include "ActionCharacterBase.generated.h"
+
+class UActionCharacterMovementComponent;
+
+UENUM(BlueprintType)
+enum class EActionCharacterState : uint8
+{
+	Idle UMETA(DisplayName = "Idle"),
+	Attacking UMETA(DisplayName = "Attacking"),
+	Dodging UMETA(DisplayName = "Dodging"),
+	HitReact UMETA(DisplayName = "HitReact"),
+	Dead UMETA(DisplayName = "Dead")
+};
+
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FActionStateChangedSignature, EActionCharacterState, OldState, EActionCharacterState, NewState);
 
 /**
  * UE 里的 ACharacter 是“带胶囊体、移动组件、骨骼网格组件”的角色基类，
@@ -18,12 +34,12 @@
  * 这样做的目的，是避免像 010 的 CharacterBase 那样一开始就塞进太多系统。
  */
 UCLASS()
-class ACTIONGAME_API AActionCharacterBase : public ACharacter
+class ACTIONGAME_API AActionCharacterBase : public ACharacter, public IGameplayTagAssetInterface
 {
 	GENERATED_BODY()
 
 public:
-	AActionCharacterBase();
+	AActionCharacterBase(const FObjectInitializer& ObjectInitializer);
 
 protected:
 	// BeginPlay 是 Actor 真正进入世界后的入口。
@@ -46,7 +62,17 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|State")
 	bool bIsDead = false;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|State")
+	EActionCharacterState CurrentActionState = EActionCharacterState::Idle;
+
+	/** 当前角色拥有的动作标签。先用于状态/窗口/禁用规则，后续可扩展给 AnimBP、AI、技能判断。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Tags")
+	FGameplayTagContainer ActionTags;
+
 public:
+	UPROPERTY(BlueprintAssignable, Category = "Action|State")
+	FActionStateChangedSignature OnActionStateChanged;
+
 	/** 角色当前是否允许发起攻击。后续可以在这里逐步接入更复杂的状态判断。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
 	virtual bool CanAttack() const;
@@ -69,5 +95,53 @@ public:
 	float GetAttackPower() const { return AttackPower; }
 
 	UFUNCTION(BlueprintPure, Category = "Action|State")
-	bool IsDead() const { return bIsDead; }
+	bool IsDead() const;
+
+	UFUNCTION(BlueprintPure, Category = "Action|State")
+	EActionCharacterState GetCurrentActionState() const { return CurrentActionState; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|State")
+	bool IsInActionState(EActionCharacterState InState) const { return CurrentActionState == InState; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|Movement")
+	virtual bool CanMove() const;
+
+	virtual void GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const override;
+
+	UFUNCTION(BlueprintPure, Category = "Action|Tags")
+	bool HasActionTag(FGameplayTag Tag) const;
+
+	UFUNCTION(BlueprintPure, Category = "Action|Tags")
+	bool HasAnyActionTags(const FGameplayTagContainer& QueryTags) const;
+
+	UFUNCTION(BlueprintPure, Category = "Action|Tags")
+	bool HasAllActionTags(const FGameplayTagContainer& QueryTags) const;
+
+	UFUNCTION(BlueprintPure, Category = "Action|Tags")
+	FString GetActionTagsDebugString() const;
+
+	UFUNCTION(BlueprintPure, Category = "Action|Movement")
+	UActionCharacterMovementComponent* GetActionCharacterMovement() const;
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Movement")
+	void SetEnableRootMotionZExtraction(bool bEnableExtraction);
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Movement")
+	void SetRootMotionZScale(float InScale);
+
+protected:
+	virtual bool CanChangeActionState(EActionCharacterState OldState, EActionCharacterState NewState) const;
+	virtual void OnActionStateExit(EActionCharacterState OldState, EActionCharacterState NewState);
+	virtual void OnActionStateEnter(EActionCharacterState OldState, EActionCharacterState NewState);
+	virtual void SetActionState(EActionCharacterState NewState);
+
+	void AddActionTag(FGameplayTag Tag);
+	void RemoveActionTag(FGameplayTag Tag);
+	void ResetActionTagsForState(EActionCharacterState State);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Action|State", meta = (DisplayName = "On Action State Exit"))
+	void BP_OnActionStateExit(EActionCharacterState OldState, EActionCharacterState NewState);
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "Action|State", meta = (DisplayName = "On Action State Enter"))
+	void BP_OnActionStateEnter(EActionCharacterState OldState, EActionCharacterState NewState);
 };

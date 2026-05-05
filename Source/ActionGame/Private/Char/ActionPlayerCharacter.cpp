@@ -4,11 +4,13 @@
 #include "Animation/AnimMontage.h"
 #include "Camera/CameraComponent.h"
 #include "Char/ActionMonsterCharacter.h"
+#include "Common/ActionGameplayTags.h"
 #include "DrawDebugHelpers.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
 #include "GameFramework/Controller.h"
+#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "Input/InputBufferComponent.h"
 #include "InputAction.h"
@@ -17,6 +19,7 @@
 #include "InputMappingContext.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Logging/LogMacros.h"
+#include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogActionPlayerCharacter, Log, All);
@@ -32,9 +35,14 @@ namespace ActionPlayerNotifyNames
 	// 约定：在攻击 Montage 里添加一个 Montage Notify，并命名为 AttackHitCheck。
 	// 后面这套代码就会在那个精确帧触发命中判定。
 	static const FName AttackHitCheck = TEXT("AttackHitCheck");
+	static const FName AttackDodgeCancelStart = TEXT("AttackDodgeCancelStart");
+	static const FName AttackComboWindowStart = TEXT("AttackComboWindowStart");
+	static const FName AttackTurnWindowStart = TEXT("AttackTurnWindowStart");
+	static const FName DodgeRecoveryStart = TEXT("DodgeRecoveryStart");
 }
 
-AActionPlayerCharacter::AActionPlayerCharacter()
+AActionPlayerCharacter::AActionPlayerCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
 {
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
 	CameraBoom->SetupAttachment(RootComponent);
@@ -74,6 +82,27 @@ AActionPlayerCharacter::AActionPlayerCharacter()
 		JumpAction = JumpActionFinder.Object;
 	}
 
+	static ConstructorHelpers::FObjectFinder<UInputMappingContext> CombatMappingContextFinder(
+		TEXT("/Game/Input/Contexts/IMC_PlayerCombat.IMC_PlayerCombat"));
+	if (CombatMappingContextFinder.Succeeded())
+	{
+		RuntimeCombatMappingContext = CombatMappingContextFinder.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> AttackActionFinder(
+		TEXT("/Game/Input/Actions/IA_Attack.IA_Attack"));
+	if (AttackActionFinder.Succeeded())
+	{
+		AttackAction = AttackActionFinder.Object;
+	}
+
+	static ConstructorHelpers::FObjectFinder<UInputAction> DodgeActionFinder(
+		TEXT("/Game/Input/Actions/IA_Dodge.IA_Dodge"));
+	if (DodgeActionFinder.Succeeded())
+	{
+		DodgeAction = DodgeActionFinder.Object;
+	}
+
 	InputBufferComponent = CreateDefaultSubobject<UInputBufferComponent>(TEXT("InputBufferComponent"));
 
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> AttackMontageFinder(
@@ -86,14 +115,33 @@ AActionPlayerCharacter::AActionPlayerCharacter()
 
 bool AActionPlayerCharacter::CanAttack() const
 {
-	return Super::CanAttack() && !bAttackInProgress;
+	return Super::CanAttack();
+}
+
+bool AActionPlayerCharacter::CanDodge() const
+{
+	return !IsDead()
+		&& !HasActionTag(ActionGameplayTags::Block_Dodge)
+		&& HasAvailableDodgeCharge();
 }
 
 void AActionPlayerCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
+	if (GetCharacterMovement() != nullptr)
+	{
+		GetCharacterMovement()->bAllowPhysicsRotationDuringAnimRootMotion = true;
+	}
+
 	BuildRuntimeCombatInputMapping();
+
+	if (UAnimInstance* AnimInstance = GetMesh() != nullptr ? GetMesh()->GetAnimInstance() : nullptr)
+	{
+		AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromMontagesOnly);
+	}
+
+	CurrentDodgeCharges = FMath::Max(1, MaxDodgeCharges);
 
 	// Enhanced Input 的 MappingContext 通常加在 LocalPlayerSubsystem 上。
 	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
@@ -121,19 +169,7 @@ void AActionPlayerCharacter::BeginPlay()
 					UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: RuntimeCombatMappingContext is null in BeginPlay."));
 				}
 			}
-			else
-			{
-				UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: EnhancedInputLocalPlayerSubsystem was not found in BeginPlay."));
-			}
 		}
-		else
-		{
-			UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: LocalPlayer was null in BeginPlay."));
-		}
-	}
-	else
-	{
-		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: PlayerController was null in BeginPlay."));
 	}
 }
 
@@ -156,6 +192,8 @@ void AActionPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerIn
 		if (MoveAction != nullptr)
 		{
 			EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Triggered, this, &AActionPlayerCharacter::Move);
+			EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Completed, this, &AActionPlayerCharacter::ClearMoveInput);
+			EnhancedInputComponent->BindAction(MoveAction, ETriggerEvent::Canceled, this, &AActionPlayerCharacter::ClearMoveInput);
 		}
 		else
 		{
@@ -189,15 +227,17 @@ void AActionPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerIn
 			UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: DodgeAction is null in SetupPlayerInputComponent."));
 		}
 	}
-	else
-	{
-		UE_LOG(LogActionPlayerCharacter, Error, TEXT("ActionPlayerCharacter: Enhanced Input component was not found on PlayerInputComponent."));
-	}
 }
 
 void AActionPlayerCharacter::Move(const FInputActionValue& Value)
 {
 	const FVector2D MovementVector = Value.Get<FVector2D>();
+	LastMoveInput = MovementVector;
+
+	if (!CanMove())
+	{
+		return;
+	}
 
 	if (Controller == nullptr)
 	{
@@ -212,6 +252,11 @@ void AActionPlayerCharacter::Move(const FInputActionValue& Value)
 
 	AddMovementInput(ForwardDirection, MovementVector.Y);
 	AddMovementInput(RightDirection, MovementVector.X);
+}
+
+void AActionPlayerCharacter::ClearMoveInput()
+{
+	LastMoveInput = FVector2D::ZeroVector;
 }
 
 void AActionPlayerCharacter::Look(const FInputActionValue& Value)
@@ -240,9 +285,48 @@ void AActionPlayerCharacter::BuildRuntimeCombatInputMapping()
 			*GetNameSafe(DodgeAction));
 		return;
 	}
+}
 
-	// 现在不再在代码里手工 MapKey。
-	// Attack / Dodge 的实际键位由 IMC_PlayerCombat 这类正式输入资源负责。
+void AActionPlayerCharacter::OnActionStateExit(EActionCharacterState OldState, EActionCharacterState NewState)
+{
+	Super::OnActionStateExit(OldState, NewState);
+
+	if (OldState == EActionCharacterState::Attacking)
+	{
+		RemoveActionTag(ActionGameplayTags::Block_Attack);
+		RemoveActionTag(ActionGameplayTags::Block_Dodge);
+		RemoveActionTag(ActionGameplayTags::Block_Move);
+		RemoveActionTag(ActionGameplayTags::Window_Attack_CanDodgeCancel);
+		RemoveActionTag(ActionGameplayTags::Window_Attack_CanCombo);
+		RemoveActionTag(ActionGameplayTags::Window_Attack_CanTurn);
+	}
+
+	if (OldState == EActionCharacterState::Dodging)
+	{
+		RemoveActionTag(ActionGameplayTags::Block_Attack);
+		RemoveActionTag(ActionGameplayTags::Block_Dodge);
+		RemoveActionTag(ActionGameplayTags::Block_Move);
+		RemoveActionTag(ActionGameplayTags::Window_Dodge_CanRecover);
+	}
+}
+
+void AActionPlayerCharacter::OnActionStateEnter(EActionCharacterState OldState, EActionCharacterState NewState)
+{
+	Super::OnActionStateEnter(OldState, NewState);
+
+	if (NewState == EActionCharacterState::Attacking)
+	{
+		AddActionTag(ActionGameplayTags::Block_Attack);
+		AddActionTag(ActionGameplayTags::Block_Dodge);
+		AddActionTag(ActionGameplayTags::Block_Move);
+	}
+
+	if (NewState == EActionCharacterState::Dodging)
+	{
+		AddActionTag(ActionGameplayTags::Block_Attack);
+		AddActionTag(ActionGameplayTags::Block_Dodge);
+		AddActionTag(ActionGameplayTags::Block_Move);
+	}
 }
 
 void AActionPlayerCharacter::OnAttackInput()
@@ -255,11 +339,33 @@ void AActionPlayerCharacter::OnAttackInput()
 void AActionPlayerCharacter::OnDodgeInput()
 {
 	UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: OnDodgeInput called."));
+
+	if (!HasAvailableDodgeCharge())
+	{
+		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: Dodge input ignored because no dodge charges are available."));
+		return;
+	}
+
 	InputBufferComponent->PushInput(ActionPlayerInputNames::Dodge, InputBufferLifetime);
+	TryStartDodge();
 }
 
 void AActionPlayerCharacter::TryStartAttack()
 {
+	if (IsInActionState(EActionCharacterState::Attacking))
+	{
+		if (HasActionTag(ActionGameplayTags::Window_Attack_CanCombo) && TryConsumeAttackInput())
+		{
+			TryStartNextComboAttack();
+		}
+		else
+		{
+			UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: Attack input buffered while combo window is closed."));
+		}
+
+		return;
+	}
+
 	if (!CanAttack())
 	{
 		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: TryStartAttack blocked because character cannot attack."));
@@ -272,34 +378,7 @@ void AActionPlayerCharacter::TryStartAttack()
 		return;
 	}
 
-	if (AttackMontage == nullptr)
-	{
-		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: AttackMontage is not set."));
-		return;
-	}
-
-	UAnimInstance* AnimInstance = GetMesh() != nullptr ? GetMesh()->GetAnimInstance() : nullptr;
-	if (AnimInstance == nullptr)
-	{
-		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: AnimInstance was not found on character mesh."));
-		return;
-	}
-
-	AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AActionPlayerCharacter::OnAttackMontageNotifyBegin);
-	AnimInstance->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &AActionPlayerCharacter::OnAttackMontageNotifyBegin);
-
-	const float PlayedLength = PlayAnimMontage(AttackMontage);
-	if (PlayedLength <= 0.0f)
-	{
-		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: Failed to play attack montage."));
-		return;
-	}
-
-	FOnMontageEnded MontageEndedDelegate;
-	MontageEndedDelegate.BindUObject(this, &AActionPlayerCharacter::OnAttackMontageEnded);
-	AnimInstance->Montage_SetEndDelegate(MontageEndedDelegate, AttackMontage);
-
-	BeginAttackSequence();
+	StartAttackComboAtIndex(0);
 }
 
 bool AActionPlayerCharacter::TryConsumeAttackInput()
@@ -318,13 +397,189 @@ bool AActionPlayerCharacter::TryConsumeAttackInput()
 	return bConsumed;
 }
 
-void AActionPlayerCharacter::BeginAttackSequence()
+bool AActionPlayerCharacter::TryConsumeDodgeInput()
+{
+	if (InputBufferComponent == nullptr)
+	{
+		return false;
+	}
+
+	const bool bConsumed = InputBufferComponent->ConsumeInput(ActionPlayerInputNames::Dodge);
+	if (bConsumed)
+	{
+		UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: Dodge input consumed from buffer."));
+	}
+
+	return bConsumed;
+}
+
+bool AActionPlayerCharacter::StartAttackComboAtIndex(int32 ComboIndex)
+{
+	UAnimMontage* PreviousAttackMontage = ActiveAttackMontage;
+	UAnimMontage* SelectedAttackMontage = GetAttackMontageForComboIndex(ComboIndex);
+	if (SelectedAttackMontage == nullptr)
+	{
+		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: No attack montage for combo index %d."), ComboIndex);
+		return false;
+	}
+
+	UAnimInstance* AnimInstance = GetMesh() != nullptr ? GetMesh()->GetAnimInstance() : nullptr;
+	if (AnimInstance == nullptr)
+	{
+		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: AnimInstance was not found on character mesh."));
+		return false;
+	}
+
+	if (PreviousAttackMontage != nullptr && AnimInstance->Montage_IsPlaying(PreviousAttackMontage))
+	{
+		AnimInstance->Montage_Stop(0.12f, PreviousAttackMontage);
+	}
+
+	if (ComboIndex > 0 && HasActionTag(ActionGameplayTags::Window_Attack_CanTurn))
+	{
+		ApplyAttackTurnAtComboStart();
+	}
+
+	AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AActionPlayerCharacter::OnMontageNotifyBegin);
+	AnimInstance->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &AActionPlayerCharacter::OnMontageNotifyBegin);
+
+	const float PlayedLength = PlayAnimMontage(SelectedAttackMontage);
+	if (PlayedLength <= 0.0f)
+	{
+		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: Failed to play attack combo montage %d."), ComboIndex);
+		return false;
+	}
+
+	ActiveAttackMontage = SelectedAttackMontage;
+
+	FOnMontageEnded MontageEndedDelegate;
+	MontageEndedDelegate.BindUObject(this, &AActionPlayerCharacter::OnAttackMontageEnded);
+	AnimInstance->Montage_SetEndDelegate(MontageEndedDelegate, SelectedAttackMontage);
+
+	BeginAttackSequence(ComboIndex);
+	return true;
+}
+
+UAnimMontage* AActionPlayerCharacter::GetAttackMontageForComboIndex(int32 ComboIndex) const
+{
+	if (AttackComboMontages.IsValidIndex(ComboIndex) && AttackComboMontages[ComboIndex] != nullptr)
+	{
+		return AttackComboMontages[ComboIndex];
+	}
+
+	return ComboIndex == 0 ? AttackMontage : nullptr;
+}
+
+int32 AActionPlayerCharacter::GetNextAttackComboIndex() const
+{
+	const int32 NextComboIndex = CurrentAttackComboIndex + 1;
+	return GetAttackMontageForComboIndex(NextComboIndex) != nullptr ? NextComboIndex : INDEX_NONE;
+}
+
+bool AActionPlayerCharacter::TryStartNextComboAttack()
+{
+	const int32 NextComboIndex = GetNextAttackComboIndex();
+	if (NextComboIndex == INDEX_NONE)
+	{
+		UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: Combo input ignored because there is no next combo montage."));
+		return false;
+	}
+
+	UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: Starting next combo attack immediately."));
+	return StartAttackComboAtIndex(NextComboIndex);
+}
+
+void AActionPlayerCharacter::OpenAttackTurnWindow()
+{
+	AddActionTag(ActionGameplayTags::Window_Attack_CanTurn);
+}
+
+void AActionPlayerCharacter::ApplyAttackTurnAtComboStart()
+{
+	const FVector2D Input2D = LastMoveInput.GetSafeNormal();
+	if (Input2D.IsNearlyZero() || Controller == nullptr || AttackTurnMaxDegrees <= 0.0f)
+	{
+		return;
+	}
+
+	const FRotator ControlRotation = Controller->GetControlRotation();
+	const FRotator YawRotation(0.0f, ControlRotation.Yaw, 0.0f);
+	const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+	const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+	const FVector DesiredDirection = (ForwardDirection * Input2D.Y + RightDirection * Input2D.X).GetSafeNormal2D();
+	if (DesiredDirection.IsNearlyZero())
+	{
+		return;
+	}
+
+	const float CurrentYaw = GetActorRotation().Yaw;
+	const float DesiredYaw = DesiredDirection.Rotation().Yaw;
+	const float DeltaYaw = FMath::FindDeltaAngleDegrees(CurrentYaw, DesiredYaw);
+	const float ClampedDeltaYaw = FMath::Clamp(DeltaYaw, -AttackTurnMaxDegrees, AttackTurnMaxDegrees);
+
+	StartAttackTurnInterpolation(CurrentYaw + ClampedDeltaYaw);
+	UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: Attack combo turn consumed %.1f yaw."), ClampedDeltaYaw);
+}
+
+void AActionPlayerCharacter::StartAttackTurnInterpolation(float TargetYaw)
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(AttackTurnInterpolationTimerHandle);
+	}
+
+	AttackTurnStartRotation = GetActorRotation();
+	AttackTurnTargetRotation = FRotator(0.0f, TargetYaw, 0.0f);
+	AttackTurnInterpolationElapsed = 0.0f;
+
+	if (AttackTurnInterpDuration <= KINDA_SMALL_NUMBER || GetWorld() == nullptr)
+	{
+		SetActorRotation(AttackTurnTargetRotation);
+		return;
+	}
+
+	GetWorldTimerManager().SetTimer(
+		AttackTurnInterpolationTimerHandle,
+		this,
+		&AActionPlayerCharacter::UpdateAttackTurnInterpolation,
+		1.0f / 60.0f,
+		true);
+}
+
+void AActionPlayerCharacter::UpdateAttackTurnInterpolation()
+{
+	AttackTurnInterpolationElapsed += 1.0f / 60.0f;
+	const float Alpha = FMath::Clamp(AttackTurnInterpolationElapsed / FMath::Max(AttackTurnInterpDuration, KINDA_SMALL_NUMBER), 0.0f, 1.0f);
+	const float DeltaYaw = FMath::FindDeltaAngleDegrees(AttackTurnStartRotation.Yaw, AttackTurnTargetRotation.Yaw);
+	const float NewYaw = AttackTurnStartRotation.Yaw + DeltaYaw * Alpha;
+	SetActorRotation(FRotator(0.0f, NewYaw, 0.0f));
+
+	if (Alpha >= 1.0f)
+	{
+		GetWorldTimerManager().ClearTimer(AttackTurnInterpolationTimerHandle);
+	}
+}
+
+void AActionPlayerCharacter::BeginAttackSequence(int32 ComboIndex)
 {
 	bAttackInProgress = true;
 	bAttackHitTriggeredThisSequence = false;
+	CurrentAttackComboIndex = ComboIndex;
 	HitActorsThisAttack.Reset();
+	RemoveActionTag(ActionGameplayTags::Window_Attack_CanCombo);
+	RemoveActionTag(ActionGameplayTags::Window_Attack_CanTurn);
+	RemoveActionTag(ActionGameplayTags::Window_Attack_CanDodgeCancel);
+	AddActionTag(ActionGameplayTags::Block_Attack);
+	AddActionTag(ActionGameplayTags::Block_Dodge);
+	AddActionTag(ActionGameplayTags::Block_Move);
+	SetActionState(EActionCharacterState::Attacking);
 
-	UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: AttackStart."));
+	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: AttackStart combo index %d."), ComboIndex);
 }
 
 void AActionPlayerCharacter::HandleAttackHitCheck()
@@ -397,7 +652,18 @@ void AActionPlayerCharacter::EndAttackSequence()
 
 	bAttackInProgress = false;
 	bAttackHitTriggeredThisSequence = false;
+	CurrentAttackComboIndex = INDEX_NONE;
+	ActiveAttackMontage = nullptr;
 	HitActorsThisAttack.Reset();
+
+	if (IsDead())
+	{
+		SetActionState(EActionCharacterState::Dead);
+	}
+	else if (IsInActionState(EActionCharacterState::Attacking))
+	{
+		SetActionState(EActionCharacterState::Idle);
+	}
 
 	UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: AttackEnd."));
 
@@ -409,20 +675,254 @@ void AActionPlayerCharacter::EndAttackSequence()
 			TEXT("ActionPlayerCharacter: No AttackHitCheck notify was received. Add a Montage Notify named 'AttackHitCheck' to the attack montage."));
 	}
 
+	if (InputBufferComponent != nullptr && InputBufferComponent->HasValidInput(ActionPlayerInputNames::Dodge))
+	{
+		TryStartDodge();
+		return;
+	}
+
 	if (InputBufferComponent != nullptr && InputBufferComponent->HasValidInput(ActionPlayerInputNames::Attack))
 	{
 		TryStartAttack();
 	}
 }
 
-void AActionPlayerCharacter::OnAttackMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload)
+void AActionPlayerCharacter::TryStartDodge()
 {
-	if (!bAttackInProgress)
+	if (!CanDodge())
+	{
+		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: TryStartDodge blocked because character cannot dodge."));
+		return;
+	}
+
+	if (!TryConsumeDodgeInput())
+	{
+		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: TryStartDodge found no buffered dodge input."));
+		return;
+	}
+
+	UAnimMontage* SelectedDodgeMontage = SelectDodgeMontage();
+	if (SelectedDodgeMontage == nullptr)
+	{
+		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: No dodge montage is set for the current direction."));
+		return;
+	}
+
+	UAnimInstance* AnimInstance = GetMesh() != nullptr ? GetMesh()->GetAnimInstance() : nullptr;
+	if (AnimInstance == nullptr)
+	{
+		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: AnimInstance was not found on character mesh."));
+		return;
+	}
+
+	AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &AActionPlayerCharacter::OnMontageNotifyBegin);
+	AnimInstance->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &AActionPlayerCharacter::OnMontageNotifyBegin);
+
+	const float PlayedLength = PlayAnimMontage(SelectedDodgeMontage);
+	if (PlayedLength <= 0.0f)
+	{
+		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: Failed to play dodge montage."));
+		return;
+	}
+
+	ActiveDodgeMontage = SelectedDodgeMontage;
+
+	FOnMontageEnded MontageEndedDelegate;
+	MontageEndedDelegate.BindUObject(this, &AActionPlayerCharacter::OnDodgeMontageEnded);
+	AnimInstance->Montage_SetEndDelegate(MontageEndedDelegate, SelectedDodgeMontage);
+
+	BeginDodgeSequence();
+}
+
+void AActionPlayerCharacter::BeginDodgeSequence()
+{
+	bDodgeInProgress = true;
+	ConsumeDodgeCharge();
+	SetActionState(EActionCharacterState::Dodging);
+
+	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		MovementComponent->StopMovementImmediately();
+	}
+
+	UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: DodgeStart."));
+}
+
+void AActionPlayerCharacter::EndDodgeSequence()
+{
+	if (!bDodgeInProgress)
 	{
 		return;
 	}
 
-	if (NotifyName != ActionPlayerNotifyNames::AttackHitCheck)
+	bDodgeInProgress = false;
+	ActiveDodgeMontage = nullptr;
+	SetActionState(IsDead() ? EActionCharacterState::Dead : EActionCharacterState::Idle);
+
+	UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: DodgeEnd."));
+
+	if (InputBufferComponent != nullptr && InputBufferComponent->HasValidInput(ActionPlayerInputNames::Dodge))
+	{
+		TryStartDodge();
+		return;
+	}
+
+	if (InputBufferComponent != nullptr && InputBufferComponent->HasValidInput(ActionPlayerInputNames::Attack))
+	{
+		TryStartAttack();
+	}
+}
+
+void AActionPlayerCharacter::ConsumeDodgeCharge()
+{
+	const int32 EffectiveMaxCharges = FMath::Max(1, MaxDodgeCharges);
+	CurrentDodgeCharges = FMath::Clamp(CurrentDodgeCharges - 1, 0, EffectiveMaxCharges);
+
+	UE_LOG(
+		LogActionPlayerCharacter,
+		Log,
+		TEXT("ActionPlayerCharacter: Dodge charge consumed. %d / %d remaining."),
+		CurrentDodgeCharges,
+		EffectiveMaxCharges);
+
+	if (CurrentDodgeCharges < EffectiveMaxCharges && !GetWorldTimerManager().IsTimerActive(DodgeChargeRestoreTimerHandle))
+	{
+		const float RestoreDelay = DodgeChargeCooldown > 0.0f ? DodgeChargeCooldown : KINDA_SMALL_NUMBER;
+		GetWorldTimerManager().SetTimer(
+			DodgeChargeRestoreTimerHandle,
+			this,
+			&AActionPlayerCharacter::RestoreDodgeCharge,
+			RestoreDelay,
+			false);
+	}
+}
+
+void AActionPlayerCharacter::RestoreDodgeCharge()
+{
+	const int32 EffectiveMaxCharges = FMath::Max(1, MaxDodgeCharges);
+	CurrentDodgeCharges = FMath::Clamp(CurrentDodgeCharges + 1, 0, EffectiveMaxCharges);
+
+	UE_LOG(
+		LogActionPlayerCharacter,
+		Log,
+		TEXT("ActionPlayerCharacter: Dodge charge restored. %d / %d available."),
+		CurrentDodgeCharges,
+		EffectiveMaxCharges);
+
+	if (CurrentDodgeCharges < EffectiveMaxCharges)
+	{
+		const float RestoreDelay = DodgeChargeCooldown > 0.0f ? DodgeChargeCooldown : KINDA_SMALL_NUMBER;
+		GetWorldTimerManager().SetTimer(
+			DodgeChargeRestoreTimerHandle,
+			this,
+			&AActionPlayerCharacter::RestoreDodgeCharge,
+			RestoreDelay,
+			false);
+	}
+}
+
+bool AActionPlayerCharacter::HasAvailableDodgeCharge() const
+{
+	return CurrentDodgeCharges > 0;
+}
+
+FVector AActionPlayerCharacter::ResolveDodgeDirection() const
+{
+	FVector DodgeDirection = GetVelocity();
+	DodgeDirection.Z = 0.0f;
+
+	if (DodgeDirection.Normalize())
+	{
+		return DodgeDirection;
+	}
+
+	const FVector2D Input2D = LastMoveInput.GetSafeNormal();
+	if (!Input2D.IsNearlyZero() && Controller != nullptr)
+	{
+		const FRotator ControlRotation = Controller->GetControlRotation();
+		const FRotator YawRotation(0.0f, ControlRotation.Yaw, 0.0f);
+		const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+		const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+		DodgeDirection = ForwardDirection * Input2D.Y + RightDirection * Input2D.X;
+		DodgeDirection.Z = 0.0f;
+		DodgeDirection.Normalize();
+		return DodgeDirection;
+	}
+
+	return -GetActorForwardVector();
+}
+
+UAnimMontage* AActionPlayerCharacter::SelectDodgeMontage() const
+{
+	const FVector DodgeDirection = ResolveDodgeDirection();
+	if (DodgeDirection.IsNearlyZero())
+	{
+		return DodgeBackwardMontage != nullptr ? DodgeBackwardMontage : DodgeMontage;
+	}
+
+	const FVector ActorForward = GetActorForwardVector().GetSafeNormal2D();
+	const FVector ActorRight = GetActorRightVector().GetSafeNormal2D();
+	const float ForwardDot = FVector::DotProduct(ActorForward, DodgeDirection);
+	const float RightDot = FVector::DotProduct(ActorRight, DodgeDirection);
+
+	if (FMath::Abs(ForwardDot) >= FMath::Abs(RightDot))
+	{
+		return ForwardDot >= 0.0f
+			? (DodgeForwardMontage != nullptr ? DodgeForwardMontage : DodgeMontage)
+			: (DodgeBackwardMontage != nullptr ? DodgeBackwardMontage : DodgeMontage);
+	}
+
+	return RightDot >= 0.0f
+		? (DodgeRightMontage != nullptr ? DodgeRightMontage : (DodgeForwardMontage != nullptr ? DodgeForwardMontage : DodgeMontage))
+		: (DodgeLeftMontage != nullptr ? DodgeLeftMontage : (DodgeForwardMontage != nullptr ? DodgeForwardMontage : DodgeMontage));
+}
+
+void AActionPlayerCharacter::OnMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload)
+{
+	if (NotifyName == ActionPlayerNotifyNames::AttackDodgeCancelStart && bAttackInProgress)
+	{
+		RemoveActionTag(ActionGameplayTags::Block_Dodge);
+		AddActionTag(ActionGameplayTags::Window_Attack_CanDodgeCancel);
+		UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: Attack dodge cancel window opened."));
+
+		if (InputBufferComponent != nullptr && InputBufferComponent->HasValidInput(ActionPlayerInputNames::Dodge))
+		{
+			TryStartDodge();
+		}
+
+		return;
+	}
+
+	if (NotifyName == ActionPlayerNotifyNames::AttackComboWindowStart && bAttackInProgress)
+	{
+		AddActionTag(ActionGameplayTags::Window_Attack_CanCombo);
+		UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: Attack combo window opened."));
+
+		if (InputBufferComponent != nullptr && InputBufferComponent->HasValidInput(ActionPlayerInputNames::Attack) && TryConsumeAttackInput())
+		{
+			TryStartNextComboAttack();
+		}
+
+		return;
+	}
+
+	if (NotifyName == ActionPlayerNotifyNames::AttackTurnWindowStart && bAttackInProgress)
+	{
+		OpenAttackTurnWindow();
+		return;
+	}
+
+	if (NotifyName == ActionPlayerNotifyNames::DodgeRecoveryStart && bDodgeInProgress)
+	{
+		RemoveActionTag(ActionGameplayTags::Block_Attack);
+		RemoveActionTag(ActionGameplayTags::Block_Move);
+		AddActionTag(ActionGameplayTags::Window_Dodge_CanRecover);
+		UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: Dodge recovery window opened."));
+		EndDodgeSequence();
+		return;
+	}
+
+	if (!bAttackInProgress || NotifyName != ActionPlayerNotifyNames::AttackHitCheck)
 	{
 		return;
 	}
@@ -439,7 +939,7 @@ void AActionPlayerCharacter::OnAttackMontageNotifyBegin(FName NotifyName, const 
 
 void AActionPlayerCharacter::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
-	if (Montage != AttackMontage)
+	if (Montage != ActiveAttackMontage)
 	{
 		return;
 	}
@@ -450,4 +950,19 @@ void AActionPlayerCharacter::OnAttackMontageEnded(UAnimMontage* Montage, bool bI
 	}
 
 	EndAttackSequence();
+}
+
+void AActionPlayerCharacter::OnDodgeMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	if (Montage != ActiveDodgeMontage)
+	{
+		return;
+	}
+
+	if (bInterrupted)
+	{
+		UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: Dodge montage was interrupted."));
+	}
+
+	EndDodgeSequence();
 }

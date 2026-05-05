@@ -7,7 +7,8 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogActionMonsterCharacter, Log, All);
 
-AActionMonsterCharacter::AActionMonsterCharacter()
+AActionMonsterCharacter::AActionMonsterCharacter(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer)
 {
 	// 目前怪物先沿用基类移动配置。
 	// 等后面接入 AI 后，再按怪物类型细分移动速度、转向和攻击距离。

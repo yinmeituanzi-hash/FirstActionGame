@@ -1,9 +1,12 @@
 #include "Char/ActionCharacterBase.h"
 
+#include "Char/ActionCharacterMovementComponent.h"
+#include "Common/ActionGameplayTags.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
-AActionCharacterBase::AActionCharacterBase()
+AActionCharacterBase::AActionCharacterBase(const FObjectInitializer& ObjectInitializer)
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UActionCharacterMovementComponent>(ACharacter::CharacterMovementComponentName))
 {
 	PrimaryActorTick.bCanEverTick = false;
 
@@ -37,16 +40,24 @@ void AActionCharacterBase::BeginPlay()
 	// 运行开始时做一次保护，避免在编辑器里把 CurrentHP 改成无效值后直接带入运行时。
 	MaxHP = FMath::Max(MaxHP, 1.0f);
 	CurrentHP = FMath::Clamp(CurrentHP, 0.0f, MaxHP);
+	SetActionState(bIsDead ? EActionCharacterState::Dead : EActionCharacterState::Idle);
 }
 
 bool AActionCharacterBase::CanAttack() const
 {
-	return !bIsDead;
+	return !IsDead()
+		&& !HasActionTag(ActionGameplayTags::Block_Attack);
+}
+
+bool AActionCharacterBase::CanMove() const
+{
+	return !IsDead()
+		&& !HasActionTag(ActionGameplayTags::Block_Move);
 }
 
 void AActionCharacterBase::ApplyDamage(float InDamage)
 {
-	if (bIsDead)
+	if (IsDead())
 	{
 		return;
 	}
@@ -62,13 +73,14 @@ void AActionCharacterBase::ApplyDamage(float InDamage)
 
 void AActionCharacterBase::Die()
 {
-	if (bIsDead)
+	if (IsDead())
 	{
 		return;
 	}
 
 	bIsDead = true;
 	CurrentHP = 0.0f;
+	SetActionState(EActionCharacterState::Dead);
 
 	// Day 2 先只做最小死亡状态：
 	// 停止移动并关闭碰撞，确保后续接入怪物死亡时不会继续参与交互。
@@ -78,4 +90,151 @@ void AActionCharacterBase::Die()
 	}
 
 	GetCapsuleComponent()->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+}
+
+UActionCharacterMovementComponent* AActionCharacterBase::GetActionCharacterMovement() const
+{
+	return Cast<UActionCharacterMovementComponent>(GetCharacterMovement());
+}
+
+bool AActionCharacterBase::IsDead() const
+{
+	return bIsDead || HasActionTag(ActionGameplayTags::State_Action_Dead);
+}
+
+void AActionCharacterBase::GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const
+{
+	TagContainer = ActionTags;
+}
+
+bool AActionCharacterBase::HasActionTag(FGameplayTag Tag) const
+{
+	return ActionTags.HasTagExact(Tag);
+}
+
+bool AActionCharacterBase::HasAnyActionTags(const FGameplayTagContainer& QueryTags) const
+{
+	return ActionTags.HasAnyExact(QueryTags);
+}
+
+bool AActionCharacterBase::HasAllActionTags(const FGameplayTagContainer& QueryTags) const
+{
+	return ActionTags.HasAllExact(QueryTags);
+}
+
+FString AActionCharacterBase::GetActionTagsDebugString() const
+{
+	return ActionTags.ToStringSimple();
+}
+
+void AActionCharacterBase::SetEnableRootMotionZExtraction(bool bEnableExtraction)
+{
+	if (UActionCharacterMovementComponent* MovementComponent = GetActionCharacterMovement())
+	{
+		MovementComponent->bEnableRootMotionZExtraction = bEnableExtraction;
+	}
+}
+
+void AActionCharacterBase::SetRootMotionZScale(float InScale)
+{
+	if (UActionCharacterMovementComponent* MovementComponent = GetActionCharacterMovement())
+	{
+		MovementComponent->RootMotionZScale = FMath::Max(0.0f, InScale);
+	}
+}
+
+bool AActionCharacterBase::CanChangeActionState(EActionCharacterState OldState, EActionCharacterState NewState) const
+{
+	return OldState != EActionCharacterState::Dead || NewState == EActionCharacterState::Dead;
+}
+
+void AActionCharacterBase::OnActionStateExit(EActionCharacterState OldState, EActionCharacterState NewState)
+{
+	ResetActionTagsForState(OldState);
+	BP_OnActionStateExit(OldState, NewState);
+}
+
+void AActionCharacterBase::OnActionStateEnter(EActionCharacterState OldState, EActionCharacterState NewState)
+{
+	switch (NewState)
+	{
+	case EActionCharacterState::Attacking:
+		AddActionTag(ActionGameplayTags::State_Action_Attacking);
+		break;
+	case EActionCharacterState::Dodging:
+		AddActionTag(ActionGameplayTags::State_Action_Dodging);
+		break;
+	case EActionCharacterState::HitReact:
+		AddActionTag(ActionGameplayTags::State_Action_HitReact);
+		break;
+	case EActionCharacterState::Dead:
+		AddActionTag(ActionGameplayTags::State_Action_Dead);
+		AddActionTag(ActionGameplayTags::Block_Attack);
+		AddActionTag(ActionGameplayTags::Block_Dodge);
+		AddActionTag(ActionGameplayTags::Block_Move);
+		break;
+	default:
+		break;
+	}
+
+	BP_OnActionStateEnter(OldState, NewState);
+}
+
+void AActionCharacterBase::SetActionState(EActionCharacterState NewState)
+{
+	if (CurrentActionState == NewState)
+	{
+		return;
+	}
+
+	const EActionCharacterState OldState = CurrentActionState;
+	if (!CanChangeActionState(OldState, NewState))
+	{
+		return;
+	}
+
+	OnActionStateExit(OldState, NewState);
+	CurrentActionState = NewState;
+	OnActionStateEnter(OldState, NewState);
+	OnActionStateChanged.Broadcast(OldState, NewState);
+}
+
+void AActionCharacterBase::AddActionTag(FGameplayTag Tag)
+{
+	if (Tag.IsValid())
+	{
+		ActionTags.AddTag(Tag);
+	}
+}
+
+void AActionCharacterBase::RemoveActionTag(FGameplayTag Tag)
+{
+	if (Tag.IsValid())
+	{
+		ActionTags.RemoveTag(Tag);
+	}
+}
+
+void AActionCharacterBase::ResetActionTagsForState(EActionCharacterState State)
+{
+	switch (State)
+	{
+	case EActionCharacterState::Attacking:
+		RemoveActionTag(ActionGameplayTags::State_Action_Attacking);
+		break;
+	case EActionCharacterState::Dodging:
+		RemoveActionTag(ActionGameplayTags::State_Action_Dodging);
+		break;
+	case EActionCharacterState::HitReact:
+		RemoveActionTag(ActionGameplayTags::State_Action_HitReact);
+		break;
+	case EActionCharacterState::Dead:
+		RemoveActionTag(ActionGameplayTags::State_Action_Dead);
+		RemoveActionTag(ActionGameplayTags::Block_Attack);
+		RemoveActionTag(ActionGameplayTags::Block_Dodge);
+		RemoveActionTag(ActionGameplayTags::Block_Move);
+		break;
+	default:
+		break;
+	}
 }
