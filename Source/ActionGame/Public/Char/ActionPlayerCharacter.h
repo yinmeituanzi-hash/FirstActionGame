@@ -5,6 +5,7 @@
 #include "ActionPlayerCharacter.generated.h"
 
 class UAnimMontage;
+class UActionCombatComponent;
 class UCameraComponent;
 class UInputAction;
 class UInputBufferComponent;
@@ -71,6 +72,10 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UInputBufferComponent> InputBufferComponent;
 
+	// First extraction point for action-combat runtime logic that should not keep living on the player character.
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UActionCombatComponent> ActionCombatComponent;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
 	float InputBufferLifetime = 0.25f;
 
@@ -106,14 +111,6 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat", meta = (AllowPrivateAccess = "true"))
 	float AttackHitCheckForwardOffset = 120.0f;
 
-	// Max yaw adjustment when the next combo attack consumes an attack turn window.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|Attack", meta = (AllowPrivateAccess = "true", ClampMin = "0.0", ClampMax = "180.0"))
-	float AttackTurnMaxDegrees = 60.0f;
-
-	// Short blend time used when the next combo attack consumes the attack turn window.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|Attack", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
-	float AttackTurnInterpDuration = 0.15f;
-
 	// TODO(ActionTask): Temporary Montage Notify/Ended guard. Move this into ActionTask/ActionFeature/SkillObject later.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat", meta = (AllowPrivateAccess = "true"))
 	bool bAttackInProgress = false;
@@ -128,15 +125,6 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat", meta = (AllowPrivateAccess = "true"))
 	bool bDodgeInProgress = false;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|Dodge", meta = (AllowPrivateAccess = "true", ClampMin = "1"))
-	int32 MaxDodgeCharges = 2;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat|Dodge", meta = (AllowPrivateAccess = "true"))
-	int32 CurrentDodgeCharges = 2;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|Dodge", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
-	float DodgeChargeCooldown = 2.0f;
-
 	// Prevents one attack swing from damaging the same target more than once.
 	TSet<TWeakObjectPtr<AActor>> HitActorsThisAttack;
 
@@ -147,12 +135,6 @@ protected:
 
 	// Used to validate Dodge Montage ended callbacks against the currently active dodge.
 	TObjectPtr<UAnimMontage> ActiveDodgeMontage;
-
-	FTimerHandle DodgeChargeRestoreTimerHandle;
-	FTimerHandle AttackTurnInterpolationTimerHandle;
-	FRotator AttackTurnStartRotation = FRotator::ZeroRotator;
-	FRotator AttackTurnTargetRotation = FRotator::ZeroRotator;
-	float AttackTurnInterpolationElapsed = 0.0f;
 
 protected:
 	virtual void OnActionStateExit(EActionCharacterState OldState, EActionCharacterState NewState) override;
@@ -174,8 +156,6 @@ protected:
 	bool TryStartNextComboAttack();
 	void OpenAttackTurnWindow();
 	void ApplyAttackTurnAtComboStart();
-	void StartAttackTurnInterpolation(float TargetYaw);
-	void UpdateAttackTurnInterpolation();
 
 	void BeginAttackSequence(int32 ComboIndex);
 	void HandleAttackHitCheck();
@@ -185,8 +165,6 @@ protected:
 	void BeginDodgeSequence();
 	void EndDodgeSequence();
 
-	void ConsumeDodgeCharge();
-	void RestoreDodgeCharge();
 	bool HasAvailableDodgeCharge() const;
 
 	FVector ResolveDodgeDirection() const;
@@ -212,8 +190,9 @@ public:
 	void TryStartAttack();
 
 	UFUNCTION(BlueprintPure, Category = "Action|Combat|Dodge")
-	int32 GetCurrentDodgeCharges() const { return CurrentDodgeCharges; }
+	int32 GetCurrentDodgeCharges() const;
 
 	FORCEINLINE USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
 	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+	FORCEINLINE UActionCombatComponent* GetActionCombatComponent() const { return ActionCombatComponent; }
 };

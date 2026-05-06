@@ -5,6 +5,7 @@
 #include "Camera/CameraComponent.h"
 #include "Char/ActionMonsterCharacter.h"
 #include "Common/ActionGameplayTags.h"
+#include "Combat/Components/ActionCombatComponent.h"
 #include "DrawDebugHelpers.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
@@ -104,6 +105,7 @@ AActionPlayerCharacter::AActionPlayerCharacter(const FObjectInitializer& ObjectI
 	}
 
 	InputBufferComponent = CreateDefaultSubobject<UInputBufferComponent>(TEXT("InputBufferComponent"));
+	ActionCombatComponent = CreateDefaultSubobject<UActionCombatComponent>(TEXT("ActionCombatComponent"));
 
 	static ConstructorHelpers::FObjectFinder<UAnimMontage> AttackMontageFinder(
 		TEXT("/Game/Animations/Retargeted/DualSword/AM_DualSword_Attack01.AM_DualSword_Attack01"));
@@ -141,7 +143,10 @@ void AActionPlayerCharacter::BeginPlay()
 		AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromMontagesOnly);
 	}
 
-	CurrentDodgeCharges = FMath::Max(1, MaxDodgeCharges);
+	if (ActionCombatComponent != nullptr)
+	{
+		ActionCombatComponent->InitializeDodgeCharges();
+	}
 
 	// Enhanced Input 的 MappingContext 通常加在 LocalPlayerSubsystem 上。
 	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
@@ -430,9 +435,20 @@ bool AActionPlayerCharacter::StartAttackComboAtIndex(int32 ComboIndex)
 		return false;
 	}
 
+	bool bStoppedPreviousAttackMontage = false;
 	if (PreviousAttackMontage != nullptr && AnimInstance->Montage_IsPlaying(PreviousAttackMontage))
 	{
-		AnimInstance->Montage_Stop(0.12f, PreviousAttackMontage);
+		ActiveAttackMontage = SelectedAttackMontage;
+
+		if (ActionCombatComponent != nullptr)
+		{
+			bStoppedPreviousAttackMontage = ActionCombatComponent->StopAttackMontageForComboTransition(AnimInstance, PreviousAttackMontage);
+		}
+		else
+		{
+			AnimInstance->Montage_Stop(0.08f, PreviousAttackMontage);
+			bStoppedPreviousAttackMontage = true;
+		}
 	}
 
 	if (ComboIndex > 0 && HasActionTag(ActionGameplayTags::Window_Attack_CanTurn))
@@ -446,6 +462,11 @@ bool AActionPlayerCharacter::StartAttackComboAtIndex(int32 ComboIndex)
 	const float PlayedLength = PlayAnimMontage(SelectedAttackMontage);
 	if (PlayedLength <= 0.0f)
 	{
+		if (bStoppedPreviousAttackMontage)
+		{
+			EndAttackSequence();
+		}
+
 		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: Failed to play attack combo montage %d."), ComboIndex);
 		return false;
 	}
@@ -496,68 +517,13 @@ void AActionPlayerCharacter::OpenAttackTurnWindow()
 
 void AActionPlayerCharacter::ApplyAttackTurnAtComboStart()
 {
-	const FVector2D Input2D = LastMoveInput.GetSafeNormal();
-	if (Input2D.IsNearlyZero() || Controller == nullptr || AttackTurnMaxDegrees <= 0.0f)
+	if (ActionCombatComponent == nullptr)
 	{
 		return;
 	}
 
-	const FRotator ControlRotation = Controller->GetControlRotation();
-	const FRotator YawRotation(0.0f, ControlRotation.Yaw, 0.0f);
-	const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-	const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
-	const FVector DesiredDirection = (ForwardDirection * Input2D.Y + RightDirection * Input2D.X).GetSafeNormal2D();
-	if (DesiredDirection.IsNearlyZero())
-	{
-		return;
-	}
-
-	const float CurrentYaw = GetActorRotation().Yaw;
-	const float DesiredYaw = DesiredDirection.Rotation().Yaw;
-	const float DeltaYaw = FMath::FindDeltaAngleDegrees(CurrentYaw, DesiredYaw);
-	const float ClampedDeltaYaw = FMath::Clamp(DeltaYaw, -AttackTurnMaxDegrees, AttackTurnMaxDegrees);
-
-	StartAttackTurnInterpolation(CurrentYaw + ClampedDeltaYaw);
-	UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: Attack combo turn consumed %.1f yaw."), ClampedDeltaYaw);
-}
-
-void AActionPlayerCharacter::StartAttackTurnInterpolation(float TargetYaw)
-{
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(AttackTurnInterpolationTimerHandle);
-	}
-
-	AttackTurnStartRotation = GetActorRotation();
-	AttackTurnTargetRotation = FRotator(0.0f, TargetYaw, 0.0f);
-	AttackTurnInterpolationElapsed = 0.0f;
-
-	if (AttackTurnInterpDuration <= KINDA_SMALL_NUMBER || GetWorld() == nullptr)
-	{
-		SetActorRotation(AttackTurnTargetRotation);
-		return;
-	}
-
-	GetWorldTimerManager().SetTimer(
-		AttackTurnInterpolationTimerHandle,
-		this,
-		&AActionPlayerCharacter::UpdateAttackTurnInterpolation,
-		1.0f / 60.0f,
-		true);
-}
-
-void AActionPlayerCharacter::UpdateAttackTurnInterpolation()
-{
-	AttackTurnInterpolationElapsed += 1.0f / 60.0f;
-	const float Alpha = FMath::Clamp(AttackTurnInterpolationElapsed / FMath::Max(AttackTurnInterpDuration, KINDA_SMALL_NUMBER), 0.0f, 1.0f);
-	const float DeltaYaw = FMath::FindDeltaAngleDegrees(AttackTurnStartRotation.Yaw, AttackTurnTargetRotation.Yaw);
-	const float NewYaw = AttackTurnStartRotation.Yaw + DeltaYaw * Alpha;
-	SetActorRotation(FRotator(0.0f, NewYaw, 0.0f));
-
-	if (Alpha >= 1.0f)
-	{
-		GetWorldTimerManager().ClearTimer(AttackTurnInterpolationTimerHandle);
-	}
+	ActionCombatComponent->ApplyAttackTurnAtComboStart(this, LastMoveInput);
+	UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: Attack combo turn consumed."));
 }
 
 void AActionPlayerCharacter::BeginAttackSequence(int32 ComboIndex)
@@ -737,7 +703,11 @@ void AActionPlayerCharacter::TryStartDodge()
 void AActionPlayerCharacter::BeginDodgeSequence()
 {
 	bDodgeInProgress = true;
-	ConsumeDodgeCharge();
+	if (ActionCombatComponent != nullptr)
+	{
+		ActionCombatComponent->ConsumeDodgeCharge();
+	}
+
 	SetActionState(EActionCharacterState::Dodging);
 
 	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
@@ -773,57 +743,9 @@ void AActionPlayerCharacter::EndDodgeSequence()
 	}
 }
 
-void AActionPlayerCharacter::ConsumeDodgeCharge()
-{
-	const int32 EffectiveMaxCharges = FMath::Max(1, MaxDodgeCharges);
-	CurrentDodgeCharges = FMath::Clamp(CurrentDodgeCharges - 1, 0, EffectiveMaxCharges);
-
-	UE_LOG(
-		LogActionPlayerCharacter,
-		Log,
-		TEXT("ActionPlayerCharacter: Dodge charge consumed. %d / %d remaining."),
-		CurrentDodgeCharges,
-		EffectiveMaxCharges);
-
-	if (CurrentDodgeCharges < EffectiveMaxCharges && !GetWorldTimerManager().IsTimerActive(DodgeChargeRestoreTimerHandle))
-	{
-		const float RestoreDelay = DodgeChargeCooldown > 0.0f ? DodgeChargeCooldown : KINDA_SMALL_NUMBER;
-		GetWorldTimerManager().SetTimer(
-			DodgeChargeRestoreTimerHandle,
-			this,
-			&AActionPlayerCharacter::RestoreDodgeCharge,
-			RestoreDelay,
-			false);
-	}
-}
-
-void AActionPlayerCharacter::RestoreDodgeCharge()
-{
-	const int32 EffectiveMaxCharges = FMath::Max(1, MaxDodgeCharges);
-	CurrentDodgeCharges = FMath::Clamp(CurrentDodgeCharges + 1, 0, EffectiveMaxCharges);
-
-	UE_LOG(
-		LogActionPlayerCharacter,
-		Log,
-		TEXT("ActionPlayerCharacter: Dodge charge restored. %d / %d available."),
-		CurrentDodgeCharges,
-		EffectiveMaxCharges);
-
-	if (CurrentDodgeCharges < EffectiveMaxCharges)
-	{
-		const float RestoreDelay = DodgeChargeCooldown > 0.0f ? DodgeChargeCooldown : KINDA_SMALL_NUMBER;
-		GetWorldTimerManager().SetTimer(
-			DodgeChargeRestoreTimerHandle,
-			this,
-			&AActionPlayerCharacter::RestoreDodgeCharge,
-			RestoreDelay,
-			false);
-	}
-}
-
 bool AActionPlayerCharacter::HasAvailableDodgeCharge() const
 {
-	return CurrentDodgeCharges > 0;
+	return ActionCombatComponent != nullptr && ActionCombatComponent->HasAvailableDodgeCharge();
 }
 
 FVector AActionPlayerCharacter::ResolveDodgeDirection() const
@@ -965,4 +887,9 @@ void AActionPlayerCharacter::OnDodgeMontageEnded(UAnimMontage* Montage, bool bIn
 	}
 
 	EndDodgeSequence();
+}
+
+int32 AActionPlayerCharacter::GetCurrentDodgeCharges() const
+{
+	return ActionCombatComponent != nullptr ? ActionCombatComponent->GetCurrentDodgeCharges() : 0;
 }
