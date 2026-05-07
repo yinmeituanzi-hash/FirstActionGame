@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Char/ActionCharacterBase.h"
+#include "Combat/LockOn/ActionLockableInterface.h"
 #include "ActionMonsterCharacter.generated.h"
 
 class UAnimMontage;
@@ -18,7 +19,7 @@ struct FTimerHandle;
  * 后续再逐步接入 AI、受击表现、死亡动画和更正式的战斗逻辑。
  */
 UCLASS()
-class ACTIONGAME_API AActionMonsterCharacter : public AActionCharacterBase
+class ACTIONGAME_API AActionMonsterCharacter : public AActionCharacterBase, public IActionLockableInterface
 {
 	GENERATED_BODY()
 
@@ -30,6 +31,23 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
 	void StartMonsterAttack();
+
+	// ---------- IActionLockableInterface ----------
+
+	virtual bool CanBeLockedOn_Implementation() const override;
+	virtual FVector GetLockOnTargetLocation_Implementation() const override;
+	virtual void OnLockedOn_Implementation() override;
+	virtual void OnLockedOff_Implementation() override;
+
+	/** 锁定标记 socket 名（默认 chest 之类）。配置在蒙太奇骨骼里有则使用。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|LockOn")
+	FName LockOnSocketName = NAME_None;
+
+	UFUNCTION(BlueprintPure, Category = "Action|LockOn")
+	bool IsBeingLockedOn() const { return bIsBeingLockedOn; }
+
+private:
+	bool bIsBeingLockedOn = false;
 
 protected:
 	/** 非致死受伤时播放的最小受击蒙太奇。 */

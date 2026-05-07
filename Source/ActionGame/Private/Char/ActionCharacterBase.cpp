@@ -1,5 +1,4 @@
 #include "Char/ActionCharacterBase.h"
-
 #include "Char/ActionCharacterMovementComponent.h"
 #include "Common/ActionGameplayTags.h"
 #include "Components/CapsuleComponent.h"
@@ -125,6 +124,16 @@ bool AActionCharacterBase::HasAllActionTags(const FGameplayTagContainer& QueryTa
 FString AActionCharacterBase::GetActionTagsDebugString() const
 {
 	return ActionTags.ToStringSimple();
+}
+
+void AActionCharacterBase::AddActionTagExternal(FGameplayTag Tag)
+{
+	AddActionTag(Tag);
+}
+
+void AActionCharacterBase::RemoveActionTagExternal(FGameplayTag Tag)
+{
+	RemoveActionTag(Tag);
 }
 
 void AActionCharacterBase::SetEnableRootMotionZExtraction(bool bEnableExtraction)

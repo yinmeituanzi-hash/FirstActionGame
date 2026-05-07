@@ -2,6 +2,7 @@
 
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Logging/LogMacros.h"
 #include "TimerManager.h"
 
@@ -99,6 +100,37 @@ void AActionMonsterCharacter::StartMonsterAttack()
 	}
 
 	UE_LOG(LogActionMonsterCharacter, Log, TEXT("ActionMonsterCharacter: StartMonsterAttack called."));
+}
+
+// ============================================================================
+// IActionLockableInterface
+// ============================================================================
+
+bool AActionMonsterCharacter::CanBeLockedOn_Implementation() const
+{
+	return !IsDead();
+}
+
+FVector AActionMonsterCharacter::GetLockOnTargetLocation_Implementation() const
+{
+	if (LockOnSocketName != NAME_None && GetMesh() != nullptr && GetMesh()->DoesSocketExist(LockOnSocketName))
+	{
+		return GetMesh()->GetSocketLocation(LockOnSocketName);
+	}
+	// 默认锁角色根位置；建议在 BP 里配 LockOnSocketName 指到胸口/头部 socket，体感更好。
+	return GetActorLocation();
+}
+
+void AActionMonsterCharacter::OnLockedOn_Implementation()
+{
+	bIsBeingLockedOn = true;
+	UE_LOG(LogActionMonsterCharacter, Log, TEXT("ActionMonsterCharacter: Locked on by player."));
+}
+
+void AActionMonsterCharacter::OnLockedOff_Implementation()
+{
+	bIsBeingLockedOn = false;
+	UE_LOG(LogActionMonsterCharacter, Log, TEXT("ActionMonsterCharacter: Locked off."));
 }
 
 void AActionMonsterCharacter::FreezeDeathPose()

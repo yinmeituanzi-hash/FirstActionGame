@@ -4,25 +4,30 @@
 #include "Char/ActionCharacterBase.h"
 #include "ActionPlayerCharacter.generated.h"
 
-class UAnimMontage;
 class UActionCombatComponent;
+class UActionFeatureBase;
+class UAttackFeature;
 class UCameraComponent;
+class UDodgeFeature;
 class UInputAction;
 class UInputBufferComponent;
 class UInputMappingContext;
+class ULockOnComponent;
+class UNormalJumpFeature;
 class USpringArmComponent;
-struct FTimerHandle;
 struct FBranchingPointNotifyPayload;
 struct FInputActionValue;
 
 /**
- * Player-controlled action character.
+ * AActionPlayerCharacter
  *
- * Current responsibilities:
- * - Third-person camera setup.
- * - Enhanced Input binding.
- * - Minimal input buffering.
- * - Attack/dodge Montage playback and notify-driven action windows.
+ * 玩家角色。重构后该类只承担：
+ *   1. 第三人称相机和 Enhanced Input 配置
+ *   2. Action Feature 实例的创建、持有、查询、Tick 转发
+ *   3. 输入回调 → TryActivateFeature(FeatureClass) 的极简转发
+ *   4. 蒙太奇 Notify 总入口 → 转发给当前 ActiveFeature
+ *
+ * 具体动作（攻击、闪避、跳跃）的逻辑全部迁移到对应的 UActionFeatureBase 子类里。
  */
 UCLASS()
 class ACTIONGAME_API AActionPlayerCharacter : public AActionCharacterBase
@@ -31,25 +36,115 @@ class ACTIONGAME_API AActionPlayerCharacter : public AActionCharacterBase
 
 public:
 	AActionPlayerCharacter(const FObjectInitializer& ObjectInitializer);
+
+	// ---------- 公开输入接口（保持稳定，蓝图里若有绑定不会断） ----------
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Input")
+	void OnAttackInput();
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Input")
+	void OnDodgeInput();
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Input")
+	void OnJumpInput();
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Input")
+	void OnJumpInputReleased();
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Input")
+	void OnLockOnInput();
+
+	// ---------- Feature 管理（供 Feature 自身和外部查询） ----------
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Feature")
+	UActionFeatureBase* GetCurrentActiveFeature() const { return CurrentActiveFeature; }
+
+	void SetCurrentActiveFeature(UActionFeatureBase* InFeature);
+	void ClearCurrentActiveFeature(UActionFeatureBase* InFeature);
+
+	/**
+	 * 由 Feature 调用，请求把角色主状态切到 InState。
+	 * 若 InState 是 Idle，会用 ResolveDefaultActionState() 决定真实回退值（HitReact/Dead 优先）。
+	 */
+	void RequestActionState(EActionCharacterState InState);
+
+	template<typename T>
+	T* GetFeature() const
+	{
+		return Cast<T>(GetFeatureByClass(T::StaticClass()));
+	}
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Feature", meta = (DeterminesOutputType = "FeatureClass"))
+	UActionFeatureBase* GetFeatureByClass(TSubclassOf<UActionFeatureBase> FeatureClass) const;
+
+	// ---------- 移动/方向工具 ----------
+
+	UFUNCTION(BlueprintPure, Category = "Action|Input")
+	FVector2D GetLastMoveInput() const { return LastMoveInput; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|Combat")
+	UActionCombatComponent* GetActionCombatComponent() const { return ActionCombatComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|Input")
+	UInputBufferComponent* GetInputBufferComponent() const { return InputBufferComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|LockOn")
+	ULockOnComponent* GetLockOnComponent() const { return LockOnComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|Camera")
+	UCameraComponent* GetFollowCamera() const { return FollowCamera; }
+
+	/** 当前锁定目标位置（无锁则返回零向量）。供 AttackFeature/DodgeFeature 使用。 */
+	UFUNCTION(BlueprintPure, Category = "Action|LockOn")
+	FVector GetLockOnTargetLocation() const;
+
+	UFUNCTION(BlueprintPure, Category = "Action|LockOn")
+	bool HasLockOnTarget() const;
+
+	// ---------- 闪避充能查询（旧 API 保持兼容） ----------
+
+	UFUNCTION(BlueprintPure, Category = "Action|Combat|Dodge")
+	int32 GetCurrentDodgeCharges() const;
+
+	// ---------- 沿用基类接口 ----------
+
 	virtual bool CanAttack() const override;
 
 	UFUNCTION(BlueprintPure, Category = "Action|Combat")
 	bool CanDodge() const;
 
 protected:
-	// Third-person camera boom. The spring arm keeps camera distance and follows controller yaw.
+	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
+	virtual void Landed(const FHitResult& Hit) override;
+	virtual void OnActionStateExit(EActionCharacterState OldState, EActionCharacterState NewState) override;
+	virtual void OnActionStateEnter(EActionCharacterState OldState, EActionCharacterState NewState) override;
+	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
+
+	void Move(const FInputActionValue& Value);
+	void ClearMoveInput();
+	void Look(const FInputActionValue& Value);
+	void BuildRuntimeCombatInputMapping();
+
+	void InitializeFeatures();
+	UActionFeatureBase* CreateFeatureInstance(TSubclassOf<UActionFeatureBase> FeatureClass);
+
+	UFUNCTION()
+	void OnAnyMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload);
+
+	void BindMontageNotifyDelegateIfNeeded();
+
+	EActionCharacterState ResolveDefaultActionState() const;
+
+protected:
+	// ---------- 第三人称相机 ----------
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Camera", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<USpringArmComponent> CameraBoom;
 
-	// Actual follow camera attached to the boom.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Camera", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UCameraComponent> FollowCamera;
 
-	// Base third-person movement input context from the template project.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UInputMappingContext> DefaultMappingContext;
-
-	// Combat input context. Expected to contain Attack and Dodge actions.
+	// ---------- Enhanced Input 资源 ----------
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UInputMappingContext> RuntimeCombatMappingContext;
 
@@ -68,131 +163,63 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UInputAction> DodgeAction;
 
-	// Short-lived input buffer used by action windows, for example pressing Dodge slightly before cancel becomes legal.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UInputAction> LockOnAction;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UInputBufferComponent> InputBufferComponent;
 
-	// First extraction point for action-combat runtime logic that should not keep living on the player character.
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UActionCombatComponent> ActionCombatComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|LockOn", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<ULockOnComponent> LockOnComponent;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
 	float InputBufferLifetime = 0.25f;
 
-	// Current basic attack Montage. Hit timing is driven by Montage Notify, not by a fixed timer.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Animation", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UAnimMontage> AttackMontage;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input|Look", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
+	float LookYawSensitivity = 1.0f;
 
-	// Optional combo chain. Index 0-3 maps to normal attack segment 1-4.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Animation|Attack", meta = (AllowPrivateAccess = "true"))
-	TArray<TObjectPtr<UAnimMontage>> AttackComboMontages;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input|Look", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
+	float LookPitchSensitivity = 0.40f;
 
-	// Fallback dodge Montage if a directional Montage is not assigned.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Animation", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UAnimMontage> DodgeMontage;
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input|Look", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
+	float LockedLookPitchSensitivity = 0.3f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Animation|Dodge", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UAnimMontage> DodgeForwardMontage;
+	// ---------- Feature 配置（编辑器里指定子类） ----------
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Animation|Dodge", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UAnimMontage> DodgeLeftMontage;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Feature")
+	TSubclassOf<UAttackFeature> AttackFeatureClass;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Animation|Dodge", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UAnimMontage> DodgeBackwardMontage;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Feature")
+	TSubclassOf<UDodgeFeature> DodgeFeatureClass;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Animation|Dodge", meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<UAnimMontage> DodgeRightMontage;
+	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Feature")
+	TSubclassOf<UNormalJumpFeature> JumpFeatureClass;
 
-	// Current prototype hit check uses a sphere in front of the character.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
-	float AttackHitCheckRadius = 120.0f;
+	// ---------- Feature 运行时实例 ----------
 
-	// Distance from character origin to the center of the melee hit sphere.
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat", meta = (AllowPrivateAccess = "true"))
-	float AttackHitCheckForwardOffset = 120.0f;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Feature")
+	TObjectPtr<UAttackFeature> AttackFeature;
 
-	// TODO(ActionTask): Temporary Montage Notify/Ended guard. Move this into ActionTask/ActionFeature/SkillObject later.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat", meta = (AllowPrivateAccess = "true"))
-	bool bAttackInProgress = false;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Feature")
+	TObjectPtr<UDodgeFeature> DodgeFeature;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat", meta = (AllowPrivateAccess = "true"))
-	bool bAttackHitTriggeredThisSequence = false;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Feature")
+	TObjectPtr<UNormalJumpFeature> JumpFeature;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat|Attack", meta = (AllowPrivateAccess = "true"))
-	int32 CurrentAttackComboIndex = INDEX_NONE;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Feature")
+	TArray<TObjectPtr<UActionFeatureBase>> Features;
 
-	// TODO(ActionTask): Temporary Montage Notify/Ended guard. Move this into ActionTask/ActionFeature/SkillObject later.
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat", meta = (AllowPrivateAccess = "true"))
-	bool bDodgeInProgress = false;
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Feature")
+	TObjectPtr<UActionFeatureBase> CurrentActiveFeature;
 
-	// Prevents one attack swing from damaging the same target more than once.
-	TSet<TWeakObjectPtr<AActor>> HitActorsThisAttack;
+	// ---------- 状态缓存 ----------
 
-	// Kept even when movement is blocked, so action windows can still read the player's intended direction.
 	FVector2D LastMoveInput = FVector2D::ZeroVector;
 
-	TObjectPtr<UAnimMontage> ActiveAttackMontage;
+	bool bMontageNotifyDelegateBound = false;
 
-	// Used to validate Dodge Montage ended callbacks against the currently active dodge.
-	TObjectPtr<UAnimMontage> ActiveDodgeMontage;
-
-protected:
-	virtual void OnActionStateExit(EActionCharacterState OldState, EActionCharacterState NewState) override;
-	virtual void OnActionStateEnter(EActionCharacterState OldState, EActionCharacterState NewState) override;
-	virtual void BeginPlay() override;
-	virtual void SetupPlayerInputComponent(class UInputComponent* PlayerInputComponent) override;
-
-	void Move(const FInputActionValue& Value);
-	void ClearMoveInput();
-	void Look(const FInputActionValue& Value);
-	void BuildRuntimeCombatInputMapping();
-
-	bool TryConsumeAttackInput();
-	bool TryConsumeDodgeInput();
-
-	bool StartAttackComboAtIndex(int32 ComboIndex);
-	UAnimMontage* GetAttackMontageForComboIndex(int32 ComboIndex) const;
-	int32 GetNextAttackComboIndex() const;
-	bool TryStartNextComboAttack();
-	void OpenAttackTurnWindow();
-	void ApplyAttackTurnAtComboStart();
-
-	void BeginAttackSequence(int32 ComboIndex);
-	void HandleAttackHitCheck();
-	void EndAttackSequence();
-
-	void TryStartDodge();
-	void BeginDodgeSequence();
-	void EndDodgeSequence();
-
-	bool HasAvailableDodgeCharge() const;
-
-	FVector ResolveDodgeDirection() const;
-	UAnimMontage* SelectDodgeMontage() const;
-
-	UFUNCTION()
-	void OnMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload);
-
-	UFUNCTION()
-	void OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted);
-
-	UFUNCTION()
-	void OnDodgeMontageEnded(UAnimMontage* Montage, bool bInterrupted);
-
-public:
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
-	void OnAttackInput();
-
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
-	void OnDodgeInput();
-
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
-	void TryStartAttack();
-
-	UFUNCTION(BlueprintPure, Category = "Action|Combat|Dodge")
-	int32 GetCurrentDodgeCharges() const;
-
-	FORCEINLINE USpringArmComponent* GetCameraBoom() const { return CameraBoom; }
-	FORCEINLINE UCameraComponent* GetFollowCamera() const { return FollowCamera; }
-	FORCEINLINE UActionCombatComponent* GetActionCombatComponent() const { return ActionCombatComponent; }
+	bool bWasInAirLastFrame = false;
 };

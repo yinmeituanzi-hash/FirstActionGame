@@ -1,7 +1,7 @@
 #include "Combat/Components/ActionCombatComponent.h"
-
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "Char/ActionCharacterMovementComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Controller.h"
 #include "TimerManager.h"
@@ -35,6 +35,7 @@ void UActionCombatComponent::ApplyAttackTurnAtComboStart(ACharacter* Character, 
 		return;
 	}
 
+	// 把 WSAD 转成"相对相机的世界方向"。
 	const FRotator ControlRotation = Character->GetController()->GetControlRotation();
 	const FRotator YawRotation(0.0f, ControlRotation.Yaw, 0.0f);
 	const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
@@ -49,79 +50,44 @@ void UActionCombatComponent::ApplyAttackTurnAtComboStart(ACharacter* Character, 
 	const float DesiredYaw = DesiredDirection.Rotation().Yaw;
 	const float DeltaYaw = FMath::FindDeltaAngleDegrees(CurrentYaw, DesiredYaw);
 	const float ClampedDeltaYaw = FMath::Clamp(DeltaYaw, -AttackTurnMaxDegrees, AttackTurnMaxDegrees);
+	const float TargetYaw = CurrentYaw + ClampedDeltaYaw;
 
-	StartAttackTurnInterpolation(Character, CurrentYaw + ClampedDeltaYaw);
+	// 关键修复：不再用 60Hz Timer 调 SetActorRotation，
+	// 而是把目标 Yaw 交给 ActionCharacterMovementComponent，在 PhysicsRotation 内与 RootMotion 同管线推进。
+	UActionCharacterMovementComponent* ActionMove = Cast<UActionCharacterMovementComponent>(Character->GetCharacterMovement());
+	if (ActionMove != nullptr)
+	{
+		ActionMove->RequestAttackComboTurn(TargetYaw, AttackTurnMaxYawSpeedDeg);
+	}
+	else
+	{
+		// 兜底：如果不是 ActionCharacterMovementComponent，就保持瞬时转向（仍然不抖，因为只发生一次）。
+		FRotator NewRot = Character->GetActorRotation();
+		NewRot.Yaw = TargetYaw;
+		Character->SetActorRotation(NewRot);
+	}
 }
 
-void UActionCombatComponent::ClearAttackTurnInterpolation()
+void UActionCombatComponent::ClearAttackTurn(ACharacter* Character)
 {
-	if (UWorld* World = GetWorld())
+	if (Character == nullptr)
 	{
-		World->GetTimerManager().ClearTimer(AttackTurnInterpolationTimerHandle);
+		return;
 	}
-
-	AttackTurnCharacter.Reset();
-	AttackTurnInterpolationElapsed = 0.0f;
+	if (UActionCharacterMovementComponent* ActionMove = Cast<UActionCharacterMovementComponent>(Character->GetCharacterMovement()))
+	{
+		ActionMove->ClearAttackComboTurn();
+	}
 }
 
 void UActionCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 {
-	ClearAttackTurnInterpolation();
 	if (UWorld* World = GetWorld())
 	{
 		World->GetTimerManager().ClearTimer(DodgeChargeRestoreTimerHandle);
 	}
 
 	Super::EndPlay(EndPlayReason);
-}
-
-void UActionCombatComponent::StartAttackTurnInterpolation(ACharacter* Character, float TargetYaw)
-{
-	ClearAttackTurnInterpolation();
-
-	if (Character == nullptr)
-	{
-		return;
-	}
-
-	AttackTurnCharacter = Character;
-	AttackTurnStartRotation = Character->GetActorRotation();
-	AttackTurnTargetRotation = FRotator(0.0f, TargetYaw, 0.0f);
-	AttackTurnInterpolationElapsed = 0.0f;
-
-	if (AttackTurnInterpDuration <= KINDA_SMALL_NUMBER || GetWorld() == nullptr)
-	{
-		Character->SetActorRotation(AttackTurnTargetRotation);
-		return;
-	}
-
-	GetWorld()->GetTimerManager().SetTimer(
-		AttackTurnInterpolationTimerHandle,
-		this,
-		&UActionCombatComponent::UpdateAttackTurnInterpolation,
-		1.0f / 60.0f,
-		true);
-}
-
-void UActionCombatComponent::UpdateAttackTurnInterpolation()
-{
-	ACharacter* Character = AttackTurnCharacter.Get();
-	if (Character == nullptr)
-	{
-		ClearAttackTurnInterpolation();
-		return;
-	}
-
-	AttackTurnInterpolationElapsed += 1.0f / 60.0f;
-	const float Alpha = FMath::Clamp(AttackTurnInterpolationElapsed / FMath::Max(AttackTurnInterpDuration, KINDA_SMALL_NUMBER), 0.0f, 1.0f);
-	const float DeltaYaw = FMath::FindDeltaAngleDegrees(AttackTurnStartRotation.Yaw, AttackTurnTargetRotation.Yaw);
-	const float NewYaw = AttackTurnStartRotation.Yaw + DeltaYaw * Alpha;
-	Character->SetActorRotation(FRotator(0.0f, NewYaw, 0.0f));
-
-	if (Alpha >= 1.0f)
-	{
-		ClearAttackTurnInterpolation();
-	}
 }
 
 void UActionCombatComponent::InitializeDodgeCharges()

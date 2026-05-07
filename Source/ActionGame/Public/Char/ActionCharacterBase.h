@@ -120,6 +120,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|Tags")
 	FString GetActionTagsDebugString() const;
 
+	/**
+	 * 给外部 ActionFeature 添加/移除 Action Tag 的公开入口。
+	 * 内部仍走 AddActionTag / RemoveActionTag，但允许 Feature 在不继承基类的情况下安全修改 Tag。
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Action|Tags")
+	void AddActionTagExternal(FGameplayTag Tag);
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Tags")
+	void RemoveActionTagExternal(FGameplayTag Tag);
+
 	UFUNCTION(BlueprintPure, Category = "Action|Movement")
 	UActionCharacterMovementComponent* GetActionCharacterMovement() const;
 
