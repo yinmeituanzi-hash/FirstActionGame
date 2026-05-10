@@ -5,6 +5,7 @@
 #include "Char/ActionMonsterCharacter.h"
 #include "Char/ActionPlayerCharacter.h"
 #include "Combat/Components/ActionCombatComponent.h"
+#include "Combat/Feedback/HitFeedbackComponent.h"
 #include "Common/ActionGameplayTags.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/EngineTypes.h"
@@ -267,6 +268,17 @@ void UAttackFeature::HandleHitCheck()
 		HitActorsThisSwing.Add(Monster);
 		Monster->ApplyDamage(Owner->GetAttackPower());
 		UE_LOG(LogAttackFeature, Log, TEXT("AttackFeature: Hit %s for %.1f."), *GetNameSafe(Monster), Owner->GetAttackPower());
+
+		// 命中反馈：HitStop + 震屏 + 粒子 + 音效。
+		// 命中位置取怪物胶囊体中心高度 + 玩家 → 怪物方向上的稍微靠玩家一侧偏移，
+		// 看起来像"剑刃接触点"而不是怪物中心。后期可以替换为剑刃 socket 位置。
+		if (UHitFeedbackComponent* Feedback = Owner->GetHitFeedbackComponent())
+		{
+			const FVector MonsterCenter = Monster->GetActorLocation();
+			const FVector ToMonster = (MonsterCenter - Owner->GetActorLocation()).GetSafeNormal();
+			const FVector ContactPoint = MonsterCenter - ToMonster * 40.0f;
+			Feedback->TriggerHitFeedback(Monster, ContactPoint, Owner, 1.0f);
+		}
 	}
 }
 

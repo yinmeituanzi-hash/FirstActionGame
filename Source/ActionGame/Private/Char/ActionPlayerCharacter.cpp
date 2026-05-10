@@ -7,9 +7,12 @@
 #include "Combat/ActionFeatures/DodgeFeature.h"
 #include "Combat/ActionFeatures/NormalJumpFeature.h"
 #include "Combat/Components/ActionCombatComponent.h"
+#include "Combat/Feedback/HitFeedbackComponent.h"
 #include "Combat/LockOn/ActionLockableInterface.h"
 #include "Combat/LockOn/LockOnComponent.h"
 #include "Common/ActionGameplayTags.h"
+#include "Equipment/WeaponComponent.h"
+#include "KismetAnimationLibrary.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
 #include "Engine/LocalPlayer.h"
@@ -30,6 +33,8 @@ namespace ActionPlayerInputNames
 	static const FName Attack = TEXT("Attack");
 	static const FName Dodge = TEXT("Dodge");
 	static const FName Jump = TEXT("Jump");
+	static const FName Sprint = TEXT("Sprint");
+	static const FName LockOn = TEXT("LockOn");
 }
 
 AActionPlayerCharacter::AActionPlayerCharacter(const FObjectInitializer& ObjectInitializer)
@@ -90,10 +95,20 @@ AActionPlayerCharacter::AActionPlayerCharacter(const FObjectInitializer& ObjectI
 		LockOnAction = LockOnActionFinder.Object;
 	}
 
+	// Sprint 输入资源（蓝图可覆盖）。
+	static ConstructorHelpers::FObjectFinder<UInputAction> SprintActionFinder(
+		TEXT("/Game/Input/Actions/IA_Sprint.IA_Sprint"));
+	if (SprintActionFinder.Succeeded())
+	{
+		SprintAction = SprintActionFinder.Object;
+	}
+
 	// ---------- 子组件 ----------
 	InputBufferComponent = CreateDefaultSubobject<UInputBufferComponent>(TEXT("InputBufferComponent"));
 	ActionCombatComponent = CreateDefaultSubobject<UActionCombatComponent>(TEXT("ActionCombatComponent"));
 	LockOnComponent = CreateDefaultSubobject<ULockOnComponent>(TEXT("LockOnComponent"));
+	WeaponComponent = CreateDefaultSubobject<UWeaponComponent>(TEXT("WeaponComponent"));
+	HitFeedbackComponent = CreateDefaultSubobject<UHitFeedbackComponent>(TEXT("HitFeedbackComponent"));
 
 	// ---------- Feature 默认子类（蓝图可覆盖）----------
 	AttackFeatureClass = UAttackFeature::StaticClass();
@@ -138,6 +153,15 @@ void AActionPlayerCharacter::BeginPlay()
 
 	InitializeFeatures();
 	BindMontageNotifyDelegateIfNeeded();
+
+	// 初始化默认速度档（Jog）。后续 Sprint 输入或 Lock-On 状态变化都会重算这一档。
+	UpdateCurrentGait();
+
+	// 监听 Lock-On 状态变化：进/出锁定时重算速度档（锁定时禁用 Sprint）。
+	if (LockOnComponent != nullptr)
+	{
+		LockOnComponent->OnLockOnTargetChanged.AddDynamic(this, &AActionPlayerCharacter::OnLockOnTargetChangedHandler);
+	}
 
 	// Enhanced Input MappingContext 注册。
 	if (APlayerController* PlayerController = Cast<APlayerController>(Controller))
@@ -232,6 +256,13 @@ void AActionPlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerIn
 	if (LockOnAction != nullptr)
 	{
 		EnhancedInputComponent->BindAction(LockOnAction, ETriggerEvent::Started, this, &AActionPlayerCharacter::OnLockOnInput);
+	}
+
+	if (SprintAction != nullptr)
+	{
+		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Started, this, &AActionPlayerCharacter::OnSprintInputPressed);
+		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Completed, this, &AActionPlayerCharacter::OnSprintInputReleased);
+		EnhancedInputComponent->BindAction(SprintAction, ETriggerEvent::Canceled, this, &AActionPlayerCharacter::OnSprintInputReleased);
 	}
 }
 
@@ -615,4 +646,87 @@ int32 AActionPlayerCharacter::GetCurrentDodgeCharges() const
 		return DodgeFeature->GetCurrentCharges();
 	}
 	return ActionCombatComponent != nullptr ? ActionCombatComponent->GetCurrentDodgeCharges() : 0;
+}
+
+// =============================================================================
+// Movement gait (Walk/Jog/Sprint)
+// =============================================================================
+
+void AActionPlayerCharacter::OnSprintInputPressed()
+{
+	bSprintInputHeld = true;
+	UpdateCurrentGait();
+}
+
+void AActionPlayerCharacter::OnSprintInputReleased()
+{
+	bSprintInputHeld = false;
+	UpdateCurrentGait();
+}
+
+void AActionPlayerCharacter::UpdateCurrentGait()
+{
+	UCharacterMovementComponent* Movement = GetCharacterMovement();
+	if (Movement == nullptr)
+	{
+		return;
+	}
+
+	const bool bLocked = HasLockOnTarget();
+
+	EActionMovementGait DesiredGait;
+	if (bSprintInputHeld && !(bDisableSprintWhenLocked && bLocked))
+	{
+		DesiredGait = EActionMovementGait::Sprint;
+	}
+	else
+	{
+		DesiredGait = EActionMovementGait::Jog;
+	}
+
+	float TargetSpeed = MaxJogSpeed;
+	switch (DesiredGait)
+	{
+	case EActionMovementGait::Walk:   TargetSpeed = MaxWalkSpeed;   break;
+	case EActionMovementGait::Jog:    TargetSpeed = MaxJogSpeed;    break;
+	case EActionMovementGait::Sprint: TargetSpeed = MaxSprintSpeed; break;
+	}
+
+	CurrentGait = DesiredGait;
+	Movement->MaxWalkSpeed = TargetSpeed;
+}
+
+void AActionPlayerCharacter::OnLockOnTargetChangedHandler(AActor* /*NewTarget*/)
+{
+	// 进出锁定时重算速度档：锁定时强制 Jog（避免 Sprint 状态下侧步动画错乱）。
+	UpdateCurrentGait();
+}
+
+// =============================================================================
+// ABP helpers
+// =============================================================================
+
+float AActionPlayerCharacter::GetMovementSpeed() const
+{
+	return GetVelocity().Size2D();
+}
+
+float AActionPlayerCharacter::GetMovementDirection() const
+{
+	const FVector Velocity = GetVelocity();
+
+	// 速度太小：返回 0，避免 BlendSpace 在 Idle 边界抖动。
+	if (Velocity.SizeSquared2D() < 1.0f)
+	{
+		return 0.0f;
+	}
+
+	// UE 内置的"计算移动方向"工具：把世界速度投影到角色本地坐标系，返回 [-180°, 180°] 的角度。
+	// 0° = 角色正前方移动；±90° = 侧步；±180° = 后退。
+	return UKismetAnimationLibrary::CalculateDirection(Velocity, GetActorRotation());
+}
+
+bool AActionPlayerCharacter::IsStrafing() const
+{
+	return HasLockOnTarget();
 }

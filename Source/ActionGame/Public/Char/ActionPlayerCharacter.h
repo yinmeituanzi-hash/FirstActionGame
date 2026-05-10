@@ -11,12 +11,28 @@ class UCameraComponent;
 class UDodgeFeature;
 class UInputAction;
 class UInputBufferComponent;
+class UHitFeedbackComponent;
 class UInputMappingContext;
 class ULockOnComponent;
 class UNormalJumpFeature;
 class USpringArmComponent;
+class UWeaponComponent;
 struct FBranchingPointNotifyPayload;
 struct FInputActionValue;
+
+/**
+ * 角色当前的移动档位。
+ *   - Walk：慢速（潜行/瞄准时切到这档；目前未自动启用，预留接口）
+ *   - Jog：默认中速，按方向键就跑
+ *   - Sprint：冲刺（按住 Sprint 键时启用；锁定状态下禁用）
+ */
+UENUM(BlueprintType)
+enum class EActionMovementGait : uint8
+{
+	Walk   UMETA(DisplayName = "Walk"),
+	Jog    UMETA(DisplayName = "Jog"),
+	Sprint UMETA(DisplayName = "Sprint")
+};
 
 /**
  * AActionPlayerCharacter
@@ -53,6 +69,14 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Input")
 	void OnLockOnInput();
+
+	/** Sprint 按下：切到 Sprint 档（锁定状态下会被忽略，强制 Jog）。 */
+	UFUNCTION(BlueprintCallable, Category = "Action|Input")
+	void OnSprintInputPressed();
+
+	/** Sprint 松开：回到 Jog 档。 */
+	UFUNCTION(BlueprintCallable, Category = "Action|Input")
+	void OnSprintInputReleased();
 
 	// ---------- Feature 管理（供 Feature 自身和外部查询） ----------
 
@@ -100,6 +124,45 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Action|LockOn")
 	bool HasLockOnTarget() const;
+
+	UFUNCTION(BlueprintPure, Category = "Action|Equipment")
+	UWeaponComponent* GetWeaponComponent() const { return WeaponComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|Combat")
+	UHitFeedbackComponent* GetHitFeedbackComponent() const { return HitFeedbackComponent; }
+
+	// ---------- ABP 用的辅助函数（BlueprintPure，每帧由 ABP 调用）----------
+
+	/**
+	 * 获取角色当前 Velocity 在水平面的大小（cm/s）。
+	 * 对应 ABP 里 BlendSpace 的 Speed 轴。
+	 */
+	UFUNCTION(BlueprintPure, Category = "Action|Animation")
+	float GetMovementSpeed() const;
+
+	/**
+	 * 计算角色 Velocity 相对自身朝向的方向角度（[-180°, 180°]）。
+	 *   0°  = 正前
+	 *   90° = 正右
+	 *  -90° = 正左
+	 * ±180° = 正后
+	 *
+	 * 对应 ABP 里 Strafe BlendSpace 2D 的 Direction 轴。
+	 * 速度太小时返回 0，避免角色站住时 BlendSpace 抖动。
+	 */
+	UFUNCTION(BlueprintPure, Category = "Action|Animation")
+	float GetMovementDirection() const;
+
+	/**
+	 * 是否处于 Strafe 模式（侧步移动模式）。
+	 * 当前实现：锁定目标时为 true，否则 false。
+	 * ABP 用此值切换 Locomotion 子状态机。
+	 */
+	UFUNCTION(BlueprintPure, Category = "Action|Animation")
+	bool IsStrafing() const;
+
+	UFUNCTION(BlueprintPure, Category = "Action|Animation")
+	EActionMovementGait GetCurrentGait() const { return CurrentGait; }
 
 	// ---------- 闪避充能查询（旧 API 保持兼容） ----------
 
@@ -166,6 +229,9 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UInputAction> LockOnAction;
 
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UInputAction> SprintAction;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UInputBufferComponent> InputBufferComponent;
 
@@ -174,6 +240,27 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|LockOn", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<ULockOnComponent> LockOnComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Equipment", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UWeaponComponent> WeaponComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UHitFeedbackComponent> HitFeedbackComponent;
+
+	// ---------- 速度档位配置 ----------
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Movement", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
+	float MaxWalkSpeed = 200.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Movement", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
+	float MaxJogSpeed = 500.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Movement", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
+	float MaxSprintSpeed = 750.0f;
+
+	/** 锁定状态下是否强制禁用 Sprint。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Movement", meta = (AllowPrivateAccess = "true"))
+	bool bDisableSprintWhenLocked = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
 	float InputBufferLifetime = 0.25f;
@@ -222,4 +309,18 @@ protected:
 	bool bMontageNotifyDelegateBound = false;
 
 	bool bWasInAirLastFrame = false;
+
+	/** 当前实际生效的速度档位。Sprint 输入 + 锁定状态共同决定。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Movement", meta = (AllowPrivateAccess = "true"))
+	EActionMovementGait CurrentGait = EActionMovementGait::Jog;
+
+	/** 玩家当前是否按住 Sprint 键。锁定时即使按住也不会切到 Sprint。 */
+	bool bSprintInputHeld = false;
+
+	/** 根据 bSprintInputHeld + 锁定状态重算 CurrentGait 并应用到 CharacterMovement。 */
+	void UpdateCurrentGait();
+
+	/** LockOn 目标变化时回调（绑定到 ULockOnComponent::OnLockOnTargetChanged）。 */
+	UFUNCTION()
+	void OnLockOnTargetChangedHandler(AActor* NewTarget);
 };

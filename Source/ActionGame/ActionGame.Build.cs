@@ -19,7 +19,8 @@ public class ActionGame : ModuleRules
 			"AIModule",
 			"NavigationSystem",
 			"AnimGraphRuntime",
-			"MotionWarping"
+			"MotionWarping",
+			"Niagara"
 		});
 	}
 }
