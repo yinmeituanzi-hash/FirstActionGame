@@ -30,9 +30,7 @@ float UMontageActionFeature::PlayMontageInternal(UAnimMontage* Montage, float Pl
 		return 0.0f;
 	}
 
-	// 如果当前还有 Active 蒙太奇，先解除旧回调。
-	// 这样同一个 Feature 在窗口期重入播放新 Montage 时，旧 Montage 的 interrupted end
-	// 不会反过来调用 Stop(true) 把刚启动的新动作清掉。
+	// Detach any previous active montage before playing a replacement.
 	UAnimMontage* PreviousActiveMontage = ActiveMontage;
 	if (PreviousActiveMontage != nullptr)
 	{

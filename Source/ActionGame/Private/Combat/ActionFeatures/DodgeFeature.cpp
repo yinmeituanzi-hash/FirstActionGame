@@ -76,8 +76,8 @@ void UDodgeFeature::Execute()
 
 	BeginActive();
 
-	// 如果是在 DodgeRecoveryStart 窗口内重入，角色状态仍然是 Dodging，
-	// 不会再次触发 OnActionStateEnter，所以这里显式恢复闪避启动期的阻塞标签。
+	// Re-entering during DodgeRecoveryStart keeps the state as Dodging, so
+	// OnActionStateEnter will not fire again. Restore the startup blocks here.
 	Owner->RemoveActionTagExternal(ActionGameplayTags::Window_Dodge_CanRecover);
 	Owner->AddActionTagExternal(ActionGameplayTags::Block_Attack);
 	Owner->AddActionTagExternal(ActionGameplayTags::Block_Dodge);
@@ -117,7 +117,7 @@ void UDodgeFeature::OnNotify(FName NotifyName, const FBranchingPointNotifyPayloa
 
 	if (NotifyName == DodgeFeatureNotifies::DodgeRecoveryStart)
 	{
-		// 进入恢复窗口：允许移动、攻击、再次闪避，标记 Window 让玩家可以衔接下一次闪避。
+		// 进入恢复窗口：允许移动、攻击，标记 Window 让玩家可以衔接下一次闪避。
 		Owner->RemoveActionTagExternal(ActionGameplayTags::Block_Move);
 		Owner->RemoveActionTagExternal(ActionGameplayTags::Block_Attack);
 		Owner->RemoveActionTagExternal(ActionGameplayTags::Block_Dodge);
@@ -201,7 +201,6 @@ void UDodgeFeature::RestoreOneCharge()
 {
 	if (UWorld* World = GetWorld())
 	{
-		// 010 的 ChargeDodgeTimes 会先清掉当前恢复计时器，再决定是否排下一次。
 		// UE 的 one-shot timer 在回调执行期间可能仍被视为 active；如果不先清掉，
 		// StartChargeRestoreTimerIfNeeded() 会误判“已有计时器”并跳过下一格恢复。
 		World->GetTimerManager().ClearTimer(ChargeRestoreTimerHandle);
