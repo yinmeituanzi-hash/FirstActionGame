@@ -64,5 +64,5 @@ private:
 	UFUNCTION()
 	void HandleMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload);
 
-	void ClearMontageDelegates(UAnimInstance* AnimInstance);
+	void ClearMontageDelegates(UAnimInstance* AnimInstance, UAnimMontage* MontageForEndDelegate = nullptr);
 };

@@ -15,7 +15,7 @@ class UAnimMontage;
  *   - 接收 4 个方向的闪避蒙太奇配置（Forward/Backward/Left/Right）。
  *   - 根据当前移动输入选择方向蒙太奇（无输入时回退到 Forward 或通用 Default）。
  *   - 维护闪避充能：MaxCharges、CurrentCharges、ChargeCooldown。
- *   - 监听 DodgeRecoveryStart Notify，进入恢复窗口时移除 Block.Move/Block.Attack。
+ *   - 监听 DodgeRecoveryStart Notify，进入恢复窗口时移除 Block.Move/Block.Attack/Block.Dodge。
  *
  * 与原 PlayerCharacter 实现的对应：
  *   - HasAvailableDodgeCharge / ConsumeDodgeCharge → 移到本 Feature 内。

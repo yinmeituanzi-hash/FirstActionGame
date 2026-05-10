@@ -30,11 +30,19 @@ float UMontageActionFeature::PlayMontageInternal(UAnimMontage* Montage, float Pl
 		return 0.0f;
 	}
 
-	// 如果当前还有 Active 蒙太奇且不同，先停掉。
-	if (ActiveMontage != nullptr && ActiveMontage != Montage && AnimInstance->Montage_IsPlaying(ActiveMontage))
+	// 如果当前还有 Active 蒙太奇，先解除旧回调。
+	// 这样同一个 Feature 在窗口期重入播放新 Montage 时，旧 Montage 的 interrupted end
+	// 不会反过来调用 Stop(true) 把刚启动的新动作清掉。
+	UAnimMontage* PreviousActiveMontage = ActiveMontage;
+	if (PreviousActiveMontage != nullptr)
 	{
-		ClearMontageDelegates(AnimInstance);
-		AnimInstance->Montage_Stop(DefaultMontageBlendOutTime, ActiveMontage);
+		ClearMontageDelegates(AnimInstance, PreviousActiveMontage);
+		ActiveMontage = nullptr;
+
+		if (PreviousActiveMontage != Montage && AnimInstance->Montage_IsPlaying(PreviousActiveMontage))
+		{
+			AnimInstance->Montage_Stop(DefaultMontageBlendOutTime, PreviousActiveMontage);
+		}
 	}
 
 	const float Duration = AnimInstance->Montage_Play(Montage, PlayRate);
@@ -70,7 +78,7 @@ void UMontageActionFeature::StopActiveMontage(float BlendOutTime)
 	const float UseBlend = BlendOutTime < 0.0f ? DefaultMontageBlendOutTime : BlendOutTime;
 	if (AnimInstance->Montage_IsPlaying(ActiveMontage))
 	{
-		ClearMontageDelegates(AnimInstance);
+		ClearMontageDelegates(AnimInstance, ActiveMontage);
 		AnimInstance->Montage_Stop(UseBlend, ActiveMontage);
 	}
 
@@ -107,11 +115,17 @@ void UMontageActionFeature::HandleMontageNotifyBegin(FName NotifyName, const FBr
 	OnNotify(NotifyName, BranchingPointPayload);
 }
 
-void UMontageActionFeature::ClearMontageDelegates(UAnimInstance* AnimInstance)
+void UMontageActionFeature::ClearMontageDelegates(UAnimInstance* AnimInstance, UAnimMontage* MontageForEndDelegate)
 {
 	if (AnimInstance == nullptr)
 	{
 		return;
+	}
+
+	if (MontageForEndDelegate != nullptr)
+	{
+		FOnMontageEnded EmptyEndedDelegate;
+		AnimInstance->Montage_SetEndDelegate(EmptyEndedDelegate, MontageForEndDelegate);
 	}
 
 	AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &UMontageActionFeature::HandleMontageNotifyBegin);
