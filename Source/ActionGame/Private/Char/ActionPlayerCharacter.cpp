@@ -154,10 +154,10 @@ void AActionPlayerCharacter::BeginPlay()
 	InitializeFeatures();
 	BindMontageNotifyDelegateIfNeeded();
 
-	// 初始化默认速度档（Jog）。后续 Sprint 输入或 Lock-On 状态变化都会重算这一档。
+	// 初始化默认速度档后续 Sprint 输入或 Lock-On 状态变化都会重算这一档。
 	UpdateCurrentGait();
 
-	// 监听 Lock-On 状态变化：进/出锁定时重算速度档（锁定时禁用 Sprint）。
+	// 监听 Lock-On 状态变化：进/出锁定时重算速度档
 	if (LockOnComponent != nullptr)
 	{
 		LockOnComponent->OnLockOnTargetChanged.AddDynamic(this, &AActionPlayerCharacter::OnLockOnTargetChangedHandler);

@@ -1,5 +1,10 @@
 #include "Char/ActionCharacterBase.h"
+#include "Animation/AnimInstance.h"
 #include "Char/ActionCharacterMovementComponent.h"
+#include "Combat/HitReact/HitPhysicsComponent.h"
+#include "Combat/HitReact/HitReactComponent.h"
+#include "Combat/HitReact/HitReactTypes.h"
+#include "Combat/HitReact/HitReceiverComponent.h"
 #include "Common/ActionGameplayTags.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -18,6 +23,8 @@ AActionCharacterBase::AActionCharacterBase(const FObjectInitializer& ObjectIniti
 	bUseControllerRotationRoll = false;
 
 	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
+	// 动态生成的测试怪/训练假人可能没有 Controller，但受击 Montage Root Motion 仍然需要移动物理推进胶囊体。
+	MovementComponent->bRunPhysicsWithNoController = true;
 	MovementComponent->bOrientRotationToMovement = true;
 	MovementComponent->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
 	MovementComponent->JumpZVelocity = 700.0f;
@@ -30,11 +37,38 @@ AActionCharacterBase::AActionCharacterBase(const FObjectInitializer& ObjectIniti
 	// 说明：
 	// ACharacter 自带一个叫 Mesh 的骨骼网格组件，所以我们不用自己再创建“角色身体组件”。
 	// 以后在 BP_ActionPlayerCharacter / BP_ActionMonsterCharacter 里看到的 Mesh，就是从这里继承下来的。
+
+	// 受击调度组件：所有角色共用同一套受击入口，统一走三层调度（Feedback / React / Physics）。
+	HitReceiverComponent = CreateDefaultSubobject<UHitReceiverComponent>(TEXT("HitReceiverComponent"));
+
+	// 受击动画反应组件：玩家和怪物各自在 BP 里指向不同 DataTable，但 C++ 创建在基类。
+	HitReactComponent = CreateDefaultSubobject<UHitReactComponent>(TEXT("HitReactComponent"));
+
+	// 受击物理组件：Day 5 先接 HitFly 击飞位移，Day 6 再扩展 Ragdoll / GetUp。
+	HitPhysicsComponent = CreateDefaultSubobject<UHitPhysicsComponent>(TEXT("HitPhysicsComponent"));
 }
 
 void AActionCharacterBase::BeginPlay()
 {
 	Super::BeginPlay();
+
+	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
+	{
+		// 所有战斗角色都可能通过 Montage 播放攻击、闪避、受击等 Root Motion 动作。
+		// 放在基类里统一初始化，避免怪物只播受击动画但不应用位移。
+		MovementComponent->bAllowPhysicsRotationDuringAnimRootMotion = true;
+		if (!IsDead() && CurrentHP > 0.0f && MovementComponent->MovementMode == MOVE_None)
+		{
+			// 无 Controller 的怪物开局可能停在 MOVE_None；此时动画 Root Motion 会被提取，但不会交给移动组件应用。
+			MovementComponent->SetMovementMode(MOVE_Walking);
+		}
+	}
+
+	if (UAnimInstance* AnimInstance = GetMesh() != nullptr ? GetMesh()->GetAnimInstance() : nullptr)
+	{
+		// 项目统一使用 Montage Root Motion；普通 Locomotion 仍由移动组件驱动。
+		AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromMontagesOnly);
+	}
 
 	// 运行开始时做一次保护，避免在编辑器里把 CurrentHP 改成无效值后直接带入运行时。
 	MaxHP = FMath::Max(MaxHP, 1.0f);
@@ -67,6 +101,24 @@ void AActionCharacterBase::ApplyDamage(float InDamage)
 	if (CurrentHP <= 0.0f)
 	{
 		Die();
+	}
+}
+
+void AActionCharacterBase::ReceiveHit(const FHitContext& HitCtx)
+{
+	if (IsDead())
+	{
+		return;
+	}
+
+	// 第一步：扣血。无论受击表现是否被霸体屏蔽，伤害都要正常结算。
+	ApplyDamage(HitCtx.DamageAmount);
+
+	// 第二步：交给 HitReceiver 做表现/动画/物理三层调度。
+	// 死亡后 Receiver 会自己 short-circuit，不需要在这里多加判断。
+	if (HitReceiverComponent != nullptr)
+	{
+		HitReceiverComponent->ReceiveHit(HitCtx);
 	}
 }
 

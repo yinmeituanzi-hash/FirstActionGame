@@ -24,6 +24,9 @@ class USoundBase;
  *   - 字段全部 UPROPERTY 暴露，美术/策划可以在 BP 上直接调，不需要改 C++
  *   - 资源字段为空时降级为安全行为（不播放 / 用 DrawDebug 提示），代码不阻塞
  *
+ * 与 010 HitLogicComponent 的对比：
+ *   - 010 的 HitLogicComponent 同时管"受击表现"和"硬直/位移"，职责重
+ *   - 本组件只管反馈，硬直/位移留给后续 HitReactFeature 实现
  */
 UCLASS(ClassGroup = (Combat), meta = (BlueprintSpawnableComponent))
 class ACTIONGAME_API UHitFeedbackComponent : public UActorComponent
@@ -35,11 +38,11 @@ public:
 
 	// ==================== HitStop ====================
 
-	/** HitStop 默认时长（秒）。0.05~0.08 是经验值 */
+	/** HitStop 默认时长（秒）。0.05~0.08 是经验值，超过 0.1 会觉得"卡顿"。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HitFeedback|HitStop", meta = (ClampMin = "0.0", ClampMax = "0.5"))
 	float HitStopDuration = 0.06f;
 
-	/** HitStop 时的播放速率，0 = 完全暂停，0.05 = 慢动作 */
+	/** HitStop 时的播放速率，0 = 完全暂停，0.05 = 慢动作。建议 0。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HitFeedback|HitStop", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float HitStopAnimRate = 0.0f;
 
@@ -58,7 +61,7 @@ public:
 
 	// ==================== Particle ====================
 
-	/** 命中粒子（Niagara System） */
+	/** 命中粒子（Niagara System）。建议指定一个血花/闪光特效。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "HitFeedback|Particle")
 	TObjectPtr<UNiagaraSystem> HitParticle;
 

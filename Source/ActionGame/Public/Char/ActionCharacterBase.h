@@ -7,6 +7,10 @@
 #include "ActionCharacterBase.generated.h"
 
 class UActionCharacterMovementComponent;
+class UHitPhysicsComponent;
+class UHitReceiverComponent;
+class UHitReactComponent;
+struct FHitContext;
 
 UENUM(BlueprintType)
 enum class EActionCharacterState : uint8
@@ -48,11 +52,11 @@ protected:
 
 	/** 最大生命值。先保留为基础数值，后续再迁移更正式的属性组件。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Attributes")
-	float MaxHP = 50.0f;
+	float MaxHP = 100.0f;
 
 	/** 当前生命值。VisibleAnywhere 方便我们在编辑器里观察运行时状态。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Attributes")
-	float CurrentHP = 50.0f;
+	float CurrentHP = 100.0f;
 
 	/** 基础攻击力。Day 2 先只作为占位数值，后面接入伤害流程时会真正使用。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Attributes")
@@ -80,6 +84,21 @@ public:
 	/** 最小受伤入口。先直接按数值扣血，后续再替换成正式 DamageSpec 流程。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
 	virtual void ApplyDamage(float InDamage);
+
+	/**
+	 * 完整受击入口（推荐使用）。会走 HitReceiver 三层调度：扣血 + 反馈 + 受击动画 + 物理。
+	 * 旧的 ApplyDamage 仅扣血，保留是为了兼容现有调用点（环境/陷阱伤害）。
+	 */
+	virtual void ReceiveHit(const FHitContext& HitCtx);
+
+	UFUNCTION(BlueprintPure, Category = "Action|Combat")
+	UHitReceiverComponent* GetHitReceiver() const { return HitReceiverComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|Combat")
+	UHitReactComponent* GetHitReactComponent() const { return HitReactComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|Combat")
+	UHitPhysicsComponent* GetHitPhysicsComponent() const { return HitPhysicsComponent; }
 
 	/** 最小死亡入口。后续怪物死亡、玩家死亡都会从这里扩展。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
@@ -140,6 +159,25 @@ public:
 	void SetRootMotionZScale(float InScale);
 
 protected:
+	/**
+	 * 受击调度组件。挂在所有角色（玩家/怪物）上，作为受击体系的统一入口。
+	 * 内部把请求分发到 HitFeedback / HitReact / HitPhysics 三层。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat")
+	TObjectPtr<UHitReceiverComponent> HitReceiverComponent;
+
+	/**
+	 * 受击动画反应组件。所有角色共有；DataTable 配置在子类（玩家 BP / 怪物 BP）里独立指定。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat")
+	TObjectPtr<UHitReactComponent> HitReactComponent;
+
+	/**
+	 * 受击物理组件。只处理击飞、Ragdoll、起身等物理层表现，不负责选择受击动画。
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat")
+	TObjectPtr<UHitPhysicsComponent> HitPhysicsComponent;
+
 	virtual bool CanChangeActionState(EActionCharacterState OldState, EActionCharacterState NewState) const;
 	virtual void OnActionStateExit(EActionCharacterState OldState, EActionCharacterState NewState);
 	virtual void OnActionStateEnter(EActionCharacterState OldState, EActionCharacterState NewState);

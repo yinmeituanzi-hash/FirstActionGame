@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Char/ActionCharacterBase.h"
 #include "Combat/LockOn/ActionLockableInterface.h"
+#include "Combat/HitReact/HitReactTypes.h"
 #include "ActionMonsterCharacter.generated.h"
 
 class UAnimMontage;
@@ -29,7 +30,7 @@ public:
 	virtual void ApplyDamage(float InDamage) override;
 	virtual void Die() override;
 
-	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
+	UFUNCTION(BlueprintCallable, CallInEditor, Category = "Action|Combat")
 	void StartMonsterAttack();
 
 	// ---------- IActionLockableInterface ----------
@@ -50,9 +51,37 @@ private:
 	bool bIsBeingLockedOn = false;
 
 protected:
-	/** 非致死受伤时播放的最小受击蒙太奇。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Animation")
-	TObjectPtr<UAnimMontage> HitReactMontage;
+	/** 测试用怪物攻击距离。Day 4 先用于打通怪物攻击玩家的受击闭环，后续会迁到正式 AI/技能配置。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack", meta = (ClampMin = "0.0"))
+	float MonsterAttackRange = 400.0f;
+
+	/** 怪物攻击触发的受击类型。先支持在 BP 中切换 LightHit / HeavyHit，便于验证玩家受击表。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack")
+	EHitReactType MonsterAttackReactType = EHitReactType::LightHit;
+
+	/** 怪物攻击命中反馈强度。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack", meta = (ClampMin = "0.0"))
+	float MonsterAttackFeedbackScale = 1.0f;
+
+	/** 命中点从玩家中心沿攻击方向回退的距离，避免特效生成在胶囊体正中心。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack", meta = (ClampMin = "0.0"))
+	float MonsterAttackHitLocationBackstep = 40.0f;
+
+	/** 是否在受击动画播放前让玩家转向攻击者。默认关闭，避免影响方向受击测试。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack")
+	bool bMonsterAttackRotateVictimToAttacker = false;
+
+	/** HitFly 测试用水平击飞力度。只有 MonsterAttackReactType=HitFly 时生效。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack|HitFly", meta = (ClampMin = "0.0"))
+	float MonsterAttackHitFlyXYStrength = 800.0f;
+
+	/** HitFly 测试用向上击飞力度。只有 MonsterAttackReactType=HitFly 时生效。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack|HitFly", meta = (ClampMin = "0.0"))
+	float MonsterAttackHitFlyZStrength = 400.0f;
+
+	/** Day 5 先作为入口开关，真正 Ragdoll 会在 Day 6 完整实现。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack|HitFly")
+	bool bMonsterAttackUseRagdoll = false;
 
 	/** 死亡时播放的最小死亡蒙太奇。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Animation")

@@ -1,8 +1,9 @@
 #include "Char/ActionMonsterCharacter.h"
-
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "GameFramework/Character.h"
+#include "Kismet/GameplayStatics.h"
 #include "Logging/LogMacros.h"
 #include "TimerManager.h"
 
@@ -24,7 +25,6 @@ void AActionMonsterCharacter::ApplyDamage(float InDamage)
 	}
 
 	const float HPBefore = GetCurrentHP();
-	const bool bWillDieFromThisHit = HPBefore - FMath::Max(InDamage, 0.0f) <= 0.0f;
 	Super::ApplyDamage(InDamage);
 
 	UE_LOG(
@@ -35,14 +35,8 @@ void AActionMonsterCharacter::ApplyDamage(float InDamage)
 		HPBefore,
 		GetCurrentHP());
 
-	if (!bWillDieFromThisHit && HitReactMontage != nullptr && GetMesh() != nullptr && GetMesh()->GetAnimInstance() != nullptr)
-	{
-		const float PlayedLength = PlayAnimMontage(HitReactMontage);
-		if (PlayedLength > 0.0f)
-		{
-			UE_LOG(LogActionMonsterCharacter, Log, TEXT("ActionMonsterCharacter: Played hit react montage."));
-		}
-	}
+	// 受击动画现在统一由 HitReceiverComponent / HitReactComponent 根据 DataTable 调度。
+	// 这里不再播放旧的 HitReactMontage，避免覆盖或掩盖表驱动受击动画。
 }
 
 void AActionMonsterCharacter::Die()
@@ -99,7 +93,55 @@ void AActionMonsterCharacter::StartMonsterAttack()
 		return;
 	}
 
-	UE_LOG(LogActionMonsterCharacter, Log, TEXT("ActionMonsterCharacter: StartMonsterAttack called."));
+	AActionCharacterBase* Victim = Cast<AActionCharacterBase>(UGameplayStatics::GetPlayerCharacter(this, 0));
+	if (Victim == nullptr || Victim->IsDead())
+	{
+		UE_LOG(LogActionMonsterCharacter, Warning, TEXT("ActionMonsterCharacter: StartMonsterAttack found no valid player victim."));
+		return;
+	}
+
+	const FVector MonsterLocation = GetActorLocation();
+	const FVector VictimLocation = Victim->GetActorLocation();
+	const float Distance2D = FVector::Dist2D(MonsterLocation, VictimLocation);
+	if (Distance2D > MonsterAttackRange)
+	{
+		UE_LOG(
+			LogActionMonsterCharacter,
+			Log,
+			TEXT("ActionMonsterCharacter: Player is out of attack range. Distance=%.1f Range=%.1f"),
+			Distance2D,
+			MonsterAttackRange);
+		return;
+	}
+
+	FVector HitDirection = (VictimLocation - MonsterLocation).GetSafeNormal2D();
+	if (HitDirection.IsNearlyZero())
+	{
+		HitDirection = GetActorForwardVector().GetSafeNormal2D();
+	}
+
+	FHitContext Ctx;
+	Ctx.Attacker = this;
+	Ctx.HitDirection = HitDirection;
+	Ctx.HitLocation = VictimLocation - HitDirection * MonsterAttackHitLocationBackstep;
+	Ctx.ReactType = MonsterAttackReactType;
+	Ctx.DamageAmount = GetAttackPower();
+	Ctx.FeedbackScale = MonsterAttackFeedbackScale;
+	Ctx.bRotateToAttacker = bMonsterAttackRotateVictimToAttacker;
+	Ctx.HitFlyXYStrength = MonsterAttackHitFlyXYStrength;
+	Ctx.HitFlyZStrength = MonsterAttackHitFlyZStrength;
+	Ctx.bUseRagdoll = bMonsterAttackUseRagdoll;
+
+	UE_LOG(
+		LogActionMonsterCharacter,
+		Log,
+		TEXT("ActionMonsterCharacter: Hit player %s for %.1f. ReactType=%d Direction=%s"),
+		*GetNameSafe(Victim),
+		Ctx.DamageAmount,
+		static_cast<int32>(Ctx.ReactType),
+		*Ctx.HitDirection.ToString());
+
+	Victim->ReceiveHit(Ctx);
 }
 
 // ============================================================================
