@@ -120,6 +120,9 @@ private:
 	/** 检查目标是否仍可被锁定。 */
 	bool IsTargetStillValid(AActor* Target) const;
 
+	/** Owner 是否处于"无法操作"的强控制状态（Ragdoll / 起身 / 死亡）。锁定期间命中则强制解锁。 */
+	bool IsOwnerInStrongControlState() const;
+
 	/** 设置当前目标，处理新旧目标的接口回调和状态切换。 */
 	void SetCurrentTarget(AActor* NewTarget);
 

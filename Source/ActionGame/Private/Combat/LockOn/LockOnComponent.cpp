@@ -3,6 +3,7 @@
 #include "Camera/CameraComponent.h"
 #include "Char/ActionPlayerCharacter.h"
 #include "Combat/LockOn/ActionLockableInterface.h"
+#include "Common/ActionGameplayTags.h"
 #include "EngineUtils.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
@@ -26,6 +27,14 @@ void ULockOnComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActo
 
 	if (!IsLocked())
 	{
+		return;
+	}
+
+	// 0. 自身处于强控制状态时立即解锁。
+	if (IsOwnerInStrongControlState())
+	{
+		UE_LOG(LogLockOn, Log, TEXT("LockOn: Owner in strong-control state (Ragdoll/Dead), auto unlocking."));
+		RequestUnlock();
 		return;
 	}
 
@@ -61,6 +70,13 @@ void ULockOnComponent::RequestLockOn()
 {
 	if (IsLocked())
 	{
+		return;
+	}
+
+	// 强控制状态期间禁止开锁。否则起身那一帧玩家按 Q，会直接进入"还没起身就锁定相机"的尴尬。
+	if (IsOwnerInStrongControlState())
+	{
+		UE_LOG(LogLockOn, Log, TEXT("LockOn: RequestLockOn rejected, owner is in strong-control state."));
 		return;
 	}
 
@@ -231,6 +247,22 @@ float ULockOnComponent::ScoreCandidate(AActor* Candidate) const
 
 	// 加权求和：权重越高，越偏向"屏幕中心"。
 	return DistScore + CenterScore * ScreenCenterWeight;
+}
+
+bool ULockOnComponent::IsOwnerInStrongControlState() const
+{
+	const AActionPlayerCharacter* Owner = GetPlayerOwner();
+	if (Owner == nullptr)
+	{
+		return true;  // Owner 不存在时按"不能锁定"处理。
+	}
+	if (Owner->IsDead())
+	{
+		return true;
+	}
+	// State.Ragdoll 在 HitPhysicsComponent 进入 Ragdoll 时挂上，FinishGetUp 时摘掉，
+	// 同时覆盖了"Ragdoll 飞行"和"起身 Montage 播放"两个不可操作阶段。
+	return Owner->HasActionTag(ActionGameplayTags::State_Ragdoll);
 }
 
 bool ULockOnComponent::IsTargetStillValid(AActor* Target) const

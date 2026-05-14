@@ -135,10 +135,13 @@ void AActionMonsterCharacter::StartMonsterAttack()
 	UE_LOG(
 		LogActionMonsterCharacter,
 		Log,
-		TEXT("ActionMonsterCharacter: Hit player %s for %.1f. ReactType=%d Direction=%s"),
+		TEXT("ActionMonsterCharacter: Hit player %s for %.1f. ReactType=%d UseRagdoll=%s HitFlyXY=%.1f HitFlyZ=%.1f Direction=%s"),
 		*GetNameSafe(Victim),
 		Ctx.DamageAmount,
 		static_cast<int32>(Ctx.ReactType),
+		Ctx.bUseRagdoll ? TEXT("true") : TEXT("false"),
+		Ctx.HitFlyXYStrength,
+		Ctx.HitFlyZStrength,
 		*Ctx.HitDirection.ToString());
 
 	Victim->ReceiveHit(Ctx);

@@ -74,6 +74,14 @@ void UHitReceiverComponent::DispatchReact(const FHitContext& HitCtx)
 		return;
 	}
 
+	// 起身期间不打断起身动画。否则起身刚开始就被新一次轻击打断，视觉上变成"边起身边受击"的扭曲表现。
+	// 例外：HitFly 在 DispatchPhysics 里会主动 CancelGetUp，因为击飞优先级高于起身。
+	if (IsOwnerGettingUp())
+	{
+		UE_LOG(LogHitReceiver, Verbose, TEXT("HitReceiver: react skipped because owner is getting up."));
+		return;
+	}
+
 	AActionCharacterBase* Char = Cast<AActionCharacterBase>(GetOwner());
 	if (Char == nullptr)
 	{
@@ -116,6 +124,14 @@ void UHitReceiverComponent::DispatchPhysics(const FHitContext& HitCtx)
 		return;
 	}
 
+	// 起身阶段被击飞：先把起身状态干净退出，再让 StartRagdoll/ApplyHitImpulse 接管。
+	// 不直接 StopAllMontages：起身 Montage 会被 Ragdoll 流程自然顶掉（关闭 Mesh AnimInstance evaluation），
+	// CancelGetUp 只负责清 Tag、清 Timer、广播 OnGetUpFinished。
+	if (Physics->IsGettingUp())
+	{
+		Physics->CancelGetUp();
+	}
+
 	if (!Physics->CanApplyHitFly())
 	{
 		UE_LOG(LogHitReceiver, Verbose, TEXT("HitReceiver: HitFly skipped by HitPhysicsComponent. Owner=%s"), *GetNameSafe(Char));
@@ -152,6 +168,17 @@ bool UHitReceiverComponent::IsOwnerInRagdoll() const
 		return false;
 	}
 	return Char->HasActionTag(ActionGameplayTags::State_Ragdoll);
+}
+
+bool UHitReceiverComponent::IsOwnerGettingUp() const
+{
+	const AActionCharacterBase* Char = Cast<AActionCharacterBase>(GetOwner());
+	if (Char == nullptr)
+	{
+		return false;
+	}
+	const UHitPhysicsComponent* Physics = Char->GetHitPhysicsComponent();
+	return Physics != nullptr && Physics->IsGettingUp();
 }
 
 bool UHitReceiverComponent::IsOwnerDead() const

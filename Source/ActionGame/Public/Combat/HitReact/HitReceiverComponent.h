@@ -61,6 +61,9 @@ private:
 	/** 受击者是否处于 Ragdoll / 起身强控制状态。此期间跳过 React / Physics 重复施加。 */
 	bool IsOwnerInRagdoll() const;
 
+	/** 受击者是否处于"起身 Montage 播放中"。轻击/重击在该期间会被跳过；HitFly 仍然会接管。 */
+	bool IsOwnerGettingUp() const;
+
 	/** 受击者是否已经死亡。死亡后大多数受击响应应被截断。 */
 	bool IsOwnerDead() const;
 };

@@ -57,7 +57,7 @@ protected:
 
 	/** 怪物攻击触发的受击类型。先支持在 BP 中切换 LightHit / HeavyHit，便于验证玩家受击表。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack")
-	EHitReactType MonsterAttackReactType = EHitReactType::LightHit;
+	EHitReactType MonsterAttackReactType = EHitReactType::HitFly;
 
 	/** 怪物攻击命中反馈强度。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack", meta = (ClampMin = "0.0"))
@@ -81,7 +81,7 @@ protected:
 
 	/** Day 5 先作为入口开关，真正 Ragdoll 会在 Day 6 完整实现。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack|HitFly")
-	bool bMonsterAttackUseRagdoll = false;
+	bool bMonsterAttackUseRagdoll = true;
 
 	/** 死亡时播放的最小死亡蒙太奇。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Animation")
