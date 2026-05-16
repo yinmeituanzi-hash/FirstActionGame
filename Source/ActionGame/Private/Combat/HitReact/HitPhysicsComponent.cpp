@@ -1,4 +1,5 @@
 #include "Combat/HitReact/HitPhysicsComponent.h"
+
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Char/ActionCharacterBase.h"
@@ -6,6 +7,7 @@
 #include "Common/ActionGameplayTags.h"
 #include "Components/CapsuleComponent.h"
 #include "Components/SkeletalMeshComponent.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "TimerManager.h"
@@ -21,22 +23,38 @@ UHitPhysicsComponent::UHitPhysicsComponent()
 void UHitPhysicsComponent::BeginPlay()
 {
 	Super::BeginPlay();
-	CacheDefaultMeshTransformAndCollision();
+	CacheDefaultMeshState();
+	ValidateRagdollSetup();
 }
 
 void UHitPhysicsComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
 
+	const AActionCharacterBase* OwnerChar = GetOwnerCharacter();
+	if (OwnerChar == nullptr || OwnerChar->IsDead())
+	{
+		return;
+	}
+
+	if (bIsRestoringMeshRelativeTransform)
+	{
+		TickMeshRelativeTransformRestore(DeltaTime);
+	}
+
 	if (!bIsRagdollActive)
 	{
 		return;
 	}
 
-	const AActionCharacterBase* OwnerChar = GetOwnerCharacter();
-	if (OwnerChar == nullptr || OwnerChar->IsDead())
+	if (bDrawDebugRagdoll)
 	{
-		return;
+		DrawDebugRagdoll();
+	}
+
+	if (bSyncCapsuleToPelvisDuringRagdoll)
+	{
+		SyncCapsuleLocationToPelvis();
 	}
 
 	FHitResult GroundHit;
@@ -71,19 +89,8 @@ void UHitPhysicsComponent::ApplyHitImpulse(const FVector& HitDirection, float XY
 {
 	AActionCharacterBase* OwnerChar = GetOwnerCharacter();
 	UCharacterMovementComponent* Movement = GetOwnerMovement();
-	if (OwnerChar == nullptr || Movement == nullptr)
+	if (OwnerChar == nullptr || Movement == nullptr || !CanApplyHitFly())
 	{
-		return;
-	}
-
-	if (!CanApplyHitFly())
-	{
-		UE_LOG(
-			LogHitPhysics,
-			Verbose,
-			TEXT("HitPhysics: HitFly skipped by cooldown or invalid state. Owner=%s RemainingCooldown=%.2f"),
-			*GetNameSafe(OwnerChar),
-			GetRemainingHitFlyCooldown());
 		return;
 	}
 
@@ -93,25 +100,21 @@ void UHitPhysicsComponent::ApplyHitImpulse(const FVector& HitDirection, float XY
 		LaunchDirection = OwnerChar->GetActorForwardVector().GetSafeNormal2D();
 	}
 
-	const float SafeXYStrength = FMath::Max(XYStrength, 0.0f);
-	const float SafeZStrength = FMath::Max(ZStrength, 0.0f);
-	const FVector LaunchVelocity = LaunchDirection * SafeXYStrength + FVector::UpVector * SafeZStrength;
+	const FVector LaunchVelocity =
+		LaunchDirection * FMath::Max(XYStrength, 0.0f) +
+		FVector::UpVector * FMath::Max(ZStrength, 0.0f);
+
 	if (LaunchVelocity.IsNearlyZero())
 	{
-		UE_LOG(LogHitPhysics, Verbose, TEXT("HitPhysics: HitFly skipped because launch velocity is zero. Owner=%s"), *GetNameSafe(OwnerChar));
 		return;
 	}
 
 	LaunchCharacterInternal(OwnerChar, Movement, LaunchVelocity);
 	LastHitFlyTime = GetWorld() != nullptr ? GetWorld()->GetTimeSeconds() : LastHitFlyTime;
 
-	UE_LOG(
-		LogHitPhysics,
-		Log,
-		TEXT("HitPhysics: Applied HitFly. Owner=%s Velocity=%s Cooldown=%.2f"),
+	UE_LOG(LogHitPhysics, Log, TEXT("HitPhysics: Applied hit fly. Owner=%s Velocity=%s"),
 		*GetNameSafe(OwnerChar),
-		*LaunchVelocity.ToString(),
-		HitFlyCooldown);
+		*LaunchVelocity.ToString());
 }
 
 void UHitPhysicsComponent::StartRagdoll(const FVector& InitialImpulse)
@@ -124,32 +127,52 @@ void UHitPhysicsComponent::StartRagdoll(const FVector& InitialImpulse)
 
 	if (!CanApplyHitFly())
 	{
-		UE_LOG(LogHitPhysics, Verbose, TEXT("HitPhysics: Ragdoll skipped by cooldown or invalid state. Owner=%s"), *GetNameSafe(OwnerChar));
+		UE_LOG(LogHitPhysics, Verbose, TEXT("HitPhysics: Ragdoll skipped. Owner=%s"), *GetNameSafe(OwnerChar));
 		return;
 	}
 
-	UWorld* World = GetWorld();
-	LastHitFlyTime = World != nullptr ? World->GetTimeSeconds() : LastHitFlyTime;
-	PendingRagdollImpulse = InitialImpulse;
-	bIsRagdollPending = true;
-	AddRagdollBlockTags();
-
-	if (RagdollStartDelay > 0.0f && World != nullptr)
+	if (UWorld* World = GetWorld())
 	{
-		World->GetTimerManager().SetTimer(EnterRagdollTimerHandle, this, &UHitPhysicsComponent::EnterRagdoll, RagdollStartDelay, false);
+		LastHitFlyTime = World->GetTimeSeconds();
+		PendingRagdollImpulse = InitialImpulse;
+		bIsRagdollPending = true;
+		AddRagdollBlockTags();
+
+		if (RagdollStartDelay > 0.0f)
+		{
+			World->GetTimerManager().SetTimer(EnterRagdollTimerHandle, this, &UHitPhysicsComponent::EnterRagdoll, RagdollStartDelay, false);
+		}
+		else
+		{
+			EnterRagdoll();
+		}
 	}
 	else
 	{
+		PendingRagdollImpulse = InitialImpulse;
+		bIsRagdollPending = true;
+		AddRagdollBlockTags();
 		EnterRagdoll();
 	}
+}
 
-	UE_LOG(
-		LogHitPhysics,
-		Log,
-		TEXT("HitPhysics: Ragdoll requested. Owner=%s Impulse=%s Delay=%.2f"),
-		*GetNameSafe(OwnerChar),
-		*InitialImpulse.ToString(),
-		RagdollStartDelay);
+void UHitPhysicsComponent::CancelGetUp()
+{
+	if (!bIsGettingUp)
+	{
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(FinishGetUpTimerHandle);
+	}
+
+	bIsGettingUp = false;
+	ClearRagdollBlockTags();
+	OnGetUpFinished.Broadcast();
+
+	UE_LOG(LogHitPhysics, Log, TEXT("HitPhysics: GetUp cancelled. Owner=%s"), *GetNameSafe(GetOwner()));
 }
 
 float UHitPhysicsComponent::GetRemainingHitFlyCooldown() const
@@ -159,8 +182,7 @@ float UHitPhysicsComponent::GetRemainingHitFlyCooldown() const
 		return 0.0f;
 	}
 
-	const float ElapsedTime = GetWorld()->GetTimeSeconds() - LastHitFlyTime;
-	return FMath::Max(HitFlyCooldown - ElapsedTime, 0.0f);
+	return FMath::Max(HitFlyCooldown - (GetWorld()->GetTimeSeconds() - LastHitFlyTime), 0.0f);
 }
 
 AActionCharacterBase* UHitPhysicsComponent::GetOwnerCharacter() const
@@ -188,9 +210,13 @@ UCapsuleComponent* UHitPhysicsComponent::GetOwnerCapsule() const
 
 void UHitPhysicsComponent::LaunchCharacterInternal(AActionCharacterBase* OwnerChar, UCharacterMovementComponent* Movement, const FVector& LaunchVelocity)
 {
+	if (OwnerChar == nullptr || Movement == nullptr)
+	{
+		return;
+	}
+
 	if (bRecoverMovementModeBeforeLaunch && Movement->MovementMode == MOVE_None)
 	{
-		// 没有 MovementMode 时，LaunchCharacter 会排队速度，但 CharacterMovement 不会正常推进位置。
 		Movement->SetMovementMode(MOVE_Walking);
 	}
 
@@ -210,22 +236,23 @@ void UHitPhysicsComponent::EnterRagdoll()
 	UCharacterMovementComponent* Movement = GetOwnerMovement();
 	if (OwnerChar == nullptr || Mesh == nullptr || Capsule == nullptr || Movement == nullptr || OwnerChar->IsDead())
 	{
-		ClearRagdollBlockTags();
 		bIsRagdollPending = false;
+		ClearRagdollBlockTags();
 		return;
 	}
 
 	if (Mesh->GetPhysicsAsset() == nullptr)
 	{
-		// 没有 PhysicsAsset 时无法进入真正 Ragdoll，降级为普通击飞，避免测试流程完全失效。
 		bIsRagdollPending = false;
 		ClearRagdollBlockTags();
 		LaunchCharacterInternal(OwnerChar, Movement, PendingRagdollImpulse);
-		UE_LOG(LogHitPhysics, Warning, TEXT("HitPhysics: Ragdoll fallback to LaunchCharacter because PhysicsAsset is missing. Owner=%s"), *GetNameSafe(OwnerChar));
+		UE_LOG(LogHitPhysics, Warning, TEXT("HitPhysics: Ragdoll fallback, PhysicsAsset is missing. Owner=%s"), *GetNameSafe(OwnerChar));
 		return;
 	}
 
+	CacheDefaultMeshState();
 	SaveCurrentCollisionState();
+	LogMeshState(TEXT("EnterRagdoll.BeforePhysics"));
 
 	if (UAnimInstance* AnimInstance = Mesh->GetAnimInstance())
 	{
@@ -234,13 +261,12 @@ void UHitPhysicsComponent::EnterRagdoll()
 
 	Movement->StopMovementImmediately();
 	Movement->DisableMovement();
-
 	Capsule->SetCollisionEnabled(ECollisionEnabled::NoCollision);
+
 	Mesh->SetCollisionProfileName(RagdollCollisionProfileName);
 	Mesh->SetCollisionEnabled(ECollisionEnabled::QueryAndPhysics);
-	Mesh->SetAllBodiesPhysicsBlendWeight(1.0f);
-	Mesh->SetAllBodiesSimulatePhysics(true);
-	Mesh->SetSimulatePhysics(true);
+	Mesh->SetAllBodiesBelowSimulatePhysics(PelvisBoneName, true);
+	Mesh->SetAllBodiesBelowPhysicsBlendWeight(PelvisBoneName, 1.0f, false, true);
 	Mesh->WakeAllRigidBodies();
 
 	if (!PendingRagdollImpulse.IsNearlyZero())
@@ -253,34 +279,63 @@ void UHitPhysicsComponent::EnterRagdoll()
 	RagdollStartTime = GetWorld() != nullptr ? GetWorld()->GetTimeSeconds() : 0.0f;
 	SetComponentTickEnabled(true);
 
+	LogMeshState(TEXT("EnterRagdoll.AfterPhysics"));
 	UE_LOG(LogHitPhysics, Log, TEXT("HitPhysics: Ragdoll started. Owner=%s"), *GetNameSafe(OwnerChar));
 }
 
 void UHitPhysicsComponent::FinishRagdollAndStartGetUp()
 {
-	FHitResult GroundHit;
-	TraceGroundBelowPelvis(GroundHit);
+	AActionCharacterBase* OwnerChar = GetOwnerCharacter();
+	USkeletalMeshComponent* Mesh = GetOwnerMesh();
+	UCharacterMovementComponent* Movement = GetOwnerMovement();
+	if (OwnerChar == nullptr || Mesh == nullptr || Movement == nullptr)
+	{
+		return;
+	}
+
+	SyncCapsuleLocationToPelvis();
 
 	const EActionRagdollGetUpType GetUpType = DetermineGetUpType();
-	RestoreCharacterFromRagdoll(GroundHit);
+	const FRotator TargetRotation = ComputeCapsuleRotationFromNeckPelvis();
 
-	bIsRagdollActive = false;
-	bIsGettingUp = true;
-	SetComponentTickEnabled(false);
+	LogMeshState(TEXT("FinishRagdoll.BeforeSnapshot"));
+	UE_LOG(LogHitPhysics, Log, TEXT("HitPhysics: Broadcasting snapshot request. IsBound=%d"),
+		OnRagdollSnapshotRequested.IsBound() ? 1 : 0);
+	OnRagdollSnapshotRequested.Broadcast();
+
+	Mesh->SetAllBodiesBelowSimulatePhysics(PelvisBoneName, false);
+	Mesh->SetAllBodiesBelowPhysicsBlendWeight(PelvisBoneName, 0.0f, false, true);
+	RestoreCollisionState();
+
+	if (Mesh->GetAttachParent() == nullptr)
+	{
+		if (UCapsuleComponent* Capsule = GetOwnerCapsule())
+		{
+			Mesh->AttachToComponent(Capsule, FAttachmentTransformRules::KeepWorldTransform);
+		}
+	}
+
+	OwnerChar->SetActorRotation(TargetRotation, ETeleportType::TeleportPhysics);
+	Movement->SetMovementMode(MOVE_Walking);
 
 	UAnimMontage* GetUpMontage = GetGetUpMontage(GetUpType);
 	float GetUpDuration = FallbackGetUpBlockDuration;
-	if (AActionCharacterBase* OwnerChar = GetOwnerCharacter())
+	if (GetUpMontage != nullptr)
 	{
-		if (GetUpMontage != nullptr)
+		const float PlayedLength = OwnerChar->PlayAnimMontage(GetUpMontage, GetUpPlayRate);
+		if (PlayedLength > 0.0f)
 		{
-			const float PlayedLength = OwnerChar->PlayAnimMontage(GetUpMontage, GetUpPlayRate);
-			if (PlayedLength > 0.0f)
-			{
-				GetUpDuration = PlayedLength;
-			}
+			GetUpDuration = PlayedLength;
 		}
 	}
+
+	const float ClampedBlendDuration = FMath::Min(GetUpBlendDuration, GetUpDuration);
+	OnGetUpStarted.Broadcast(GetUpType, ClampedBlendDuration);
+	StartMeshRelativeTransformRestore(ClampedBlendDuration);
+
+	bIsRagdollActive = false;
+	bIsGettingUp = true;
+	SetComponentTickEnabled(bIsRestoringMeshRelativeTransform);
 
 	if (UWorld* World = GetWorld())
 	{
@@ -296,18 +351,21 @@ void UHitPhysicsComponent::FinishRagdollAndStartGetUp()
 		FinishGetUp();
 	}
 
-	UE_LOG(
-		LogHitPhysics,
-		Log,
-		TEXT("HitPhysics: Ragdoll finished, get up started. Type=%d Duration=%.2f"),
+	LogMeshState(TEXT("FinishRagdoll.AfterGetUpStarted"));
+	UE_LOG(LogHitPhysics, Log, TEXT("HitPhysics: GetUp started. Type=%d Duration=%.2f Blend=%.2f"),
 		static_cast<int32>(GetUpType),
-		GetUpDuration);
+		GetUpDuration,
+		ClampedBlendDuration);
 }
 
 void UHitPhysicsComponent::FinishGetUp()
 {
 	bIsGettingUp = false;
+	bIsRestoringMeshRelativeTransform = false;
+	SetComponentTickEnabled(false);
 	ClearRagdollBlockTags();
+	OnGetUpFinished.Broadcast();
+	LogMeshState(TEXT("FinishGetUp"));
 	UE_LOG(LogHitPhysics, Log, TEXT("HitPhysics: GetUp finished. Owner=%s"), *GetNameSafe(GetOwner()));
 }
 
@@ -324,9 +382,20 @@ bool UHitPhysicsComponent::IsRagdollReadyForGetUp(FHitResult& OutGroundHit) cons
 		return false;
 	}
 
+	const bool bHasGround = TraceGroundBelowPelvis(OutGroundHit);
+	if (!bHasGround || !OutGroundHit.bBlockingHit)
+	{
+		return false;
+	}
+
+	const float PelvisGroundDistance = FMath::Abs(OutGroundHit.TraceStart.Z - OutGroundHit.ImpactPoint.Z);
+	if (PelvisGroundDistance > RagdollGetUpGroundDistance)
+	{
+		return false;
+	}
+
 	if (RagdollElapsedTime >= MaxRagdollTime)
 	{
-		TraceGroundBelowPelvis(OutGroundHit);
 		return true;
 	}
 
@@ -336,9 +405,9 @@ bool UHitPhysicsComponent::IsRagdollReadyForGetUp(FHitResult& OutGroundHit) cons
 		return false;
 	}
 
-	const bool bHasGround = TraceGroundBelowPelvis(OutGroundHit);
-	const float PelvisSpeed = Mesh->GetPhysicsLinearVelocity(PelvisBoneName).Size();
-	return bHasGround && PelvisSpeed <= RagdollSettleSpeed;
+	const float PelvisLinearSpeed = Mesh->GetPhysicsLinearVelocity(PelvisBoneName).Size();
+	const float PelvisAngularSpeed = Mesh->GetPhysicsAngularVelocityInDegrees(PelvisBoneName).Size();
+	return PelvisLinearSpeed <= RagdollSettleSpeed && PelvisAngularSpeed <= RagdollSettleAngularSpeed;
 }
 
 bool UHitPhysicsComponent::TraceGroundBelowPelvis(FHitResult& OutGroundHit) const
@@ -368,20 +437,33 @@ FVector UHitPhysicsComponent::GetPelvisWorldLocation() const
 	return Mesh->DoesSocketExist(PelvisBoneName) ? Mesh->GetSocketLocation(PelvisBoneName) : Mesh->GetComponentLocation();
 }
 
-EActionRagdollGetUpType UHitPhysicsComponent::DetermineGetUpType() const
+FVector UHitPhysicsComponent::GetNeckWorldLocation() const
 {
 	const USkeletalMeshComponent* Mesh = GetOwnerMesh();
-	if (Mesh == nullptr)
+	if (Mesh == nullptr || !Mesh->DoesSocketExist(NeckBoneName))
 	{
-		return EActionRagdollGetUpType::Back;
+		return GetPelvisWorldLocation() + FVector(0.0f, 0.0f, 50.0f);
 	}
 
-	const FTransform PelvisTransform = Mesh->DoesSocketExist(PelvisBoneName)
-		? Mesh->GetSocketTransform(PelvisBoneName, RTS_World)
-		: Mesh->GetComponentTransform();
+	return Mesh->GetSocketLocation(NeckBoneName);
+}
 
-	const float PelvisUpDot = FVector::DotProduct(PelvisTransform.GetUnitAxis(EAxis::Z), FVector::UpVector);
-	const bool bFaceUp = bInvertGetUpDirection ? PelvisUpDot < 0.0f : PelvisUpDot >= 0.0f;
+bool UHitPhysicsComponent::IsRagdollFaceUp() const
+{
+	const USkeletalMeshComponent* Mesh = GetOwnerMesh();
+	if (Mesh == nullptr || !Mesh->DoesSocketExist(PelvisBoneName))
+	{
+		return true;
+	}
+
+	const FRotator PelvisRot = Mesh->GetSocketRotation(PelvisBoneName);
+	const FVector PelvisRight = FRotationMatrix(PelvisRot).GetUnitAxis(EAxis::Y);
+	return PelvisRight.Z > 0.0f;
+}
+
+EActionRagdollGetUpType UHitPhysicsComponent::DetermineGetUpType() const
+{
+	const bool bFaceUp = bInvertGetUpDirection ? !IsRagdollFaceUp() : IsRagdollFaceUp();
 	return bFaceUp ? EActionRagdollGetUpType::Back : EActionRagdollGetUpType::Front;
 }
 
@@ -390,6 +472,121 @@ UAnimMontage* UHitPhysicsComponent::GetGetUpMontage(EActionRagdollGetUpType GetU
 	return GetUpType == EActionRagdollGetUpType::Front
 		? GetUpFromFrontMontage
 		: GetUpFromBackMontage;
+}
+
+FRotator UHitPhysicsComponent::ComputeCapsuleRotationFromNeckPelvis() const
+{
+	const AActionCharacterBase* OwnerChar = GetOwnerCharacter();
+	if (OwnerChar == nullptr)
+	{
+		return FRotator::ZeroRotator;
+	}
+
+	FVector Direction = GetNeckWorldLocation() - GetPelvisWorldLocation();
+	const bool bFaceUp = bInvertGetUpDirection ? !IsRagdollFaceUp() : IsRagdollFaceUp();
+	if (!bFaceUp)
+	{
+		Direction *= -1.0f;
+	}
+
+	FVector Horizontal(Direction.X, Direction.Y, 0.0f);
+	if (Horizontal.IsNearlyZero())
+	{
+		return OwnerChar->GetActorRotation();
+	}
+
+	Horizontal.Normalize();
+	return Horizontal.Rotation();
+}
+
+void UHitPhysicsComponent::SyncCapsuleLocationToPelvis()
+{
+	AActionCharacterBase* OwnerChar = GetOwnerCharacter();
+	UCapsuleComponent* Capsule = GetOwnerCapsule();
+	if (OwnerChar == nullptr || Capsule == nullptr)
+	{
+		return;
+	}
+
+	const FVector PelvisLocation = GetPelvisWorldLocation();
+	FVector TargetLocation = OwnerChar->GetActorLocation();
+	TargetLocation.X = PelvisLocation.X;
+	TargetLocation.Y = PelvisLocation.Y;
+
+	FHitResult GroundHit;
+	if (TraceGroundBelowPelvis(GroundHit) && GroundHit.bBlockingHit)
+	{
+		TargetLocation.Z = GroundHit.ImpactPoint.Z + Capsule->GetScaledCapsuleHalfHeight();
+	}
+
+	OwnerChar->SetActorLocation(TargetLocation, false, nullptr, ETeleportType::TeleportPhysics);
+}
+
+void UHitPhysicsComponent::StartMeshRelativeTransformRestore(float Duration)
+{
+	USkeletalMeshComponent* Mesh = GetOwnerMesh();
+	if (Mesh == nullptr || !bHasCachedMeshState)
+	{
+		bIsRestoringMeshRelativeTransform = false;
+		return;
+	}
+
+	MeshRelativeRestoreStart = Mesh->GetRelativeTransform();
+	MeshRelativeRestoreElapsedTime = 0.0f;
+	MeshRelativeRestoreDuration = FMath::Max(Duration, KINDA_SMALL_NUMBER);
+	bIsRestoringMeshRelativeTransform = !MeshRelativeRestoreStart.Equals(DefaultMeshRelativeTransform, 0.1f);
+
+	if (!bIsRestoringMeshRelativeTransform)
+	{
+		return;
+	}
+
+	UE_LOG(LogHitPhysics, Log, TEXT("HitPhysics: Mesh relative transform restore started. Duration=%.2f From=%s To=%s"),
+		MeshRelativeRestoreDuration,
+		*MeshRelativeRestoreStart.ToString(),
+		*DefaultMeshRelativeTransform.ToString());
+}
+
+void UHitPhysicsComponent::TickMeshRelativeTransformRestore(float DeltaTime)
+{
+	USkeletalMeshComponent* Mesh = GetOwnerMesh();
+	if (Mesh == nullptr || !bIsRestoringMeshRelativeTransform)
+	{
+		bIsRestoringMeshRelativeTransform = false;
+		return;
+	}
+
+	MeshRelativeRestoreElapsedTime += DeltaTime;
+	const float Alpha = FMath::Clamp(MeshRelativeRestoreElapsedTime / MeshRelativeRestoreDuration, 0.0f, 1.0f);
+	const float SmoothAlpha = FMath::InterpEaseInOut(0.0f, 1.0f, Alpha, 2.0f);
+
+	const FVector Location = FMath::Lerp(
+		MeshRelativeRestoreStart.GetLocation(),
+		DefaultMeshRelativeTransform.GetLocation(),
+		SmoothAlpha);
+	const FQuat Rotation = FQuat::Slerp(
+		MeshRelativeRestoreStart.GetRotation(),
+		DefaultMeshRelativeTransform.GetRotation(),
+		SmoothAlpha).GetNormalized();
+	const FVector Scale = FMath::Lerp(
+		MeshRelativeRestoreStart.GetScale3D(),
+		DefaultMeshRelativeTransform.GetScale3D(),
+		SmoothAlpha);
+
+	Mesh->SetRelativeTransform(FTransform(Rotation, Location, Scale), false, nullptr, ETeleportType::TeleportPhysics);
+
+	if (Alpha >= 1.0f)
+	{
+		Mesh->SetRelativeTransform(DefaultMeshRelativeTransform, false, nullptr, ETeleportType::TeleportPhysics);
+		bIsRestoringMeshRelativeTransform = false;
+
+		if (!bIsRagdollActive)
+		{
+			SetComponentTickEnabled(false);
+		}
+
+		LogMeshState(TEXT("MeshRelativeRestore.Finished"));
+	}
 }
 
 void UHitPhysicsComponent::AddRagdollBlockTags()
@@ -416,13 +613,66 @@ void UHitPhysicsComponent::ClearRagdollBlockTags()
 	}
 }
 
-void UHitPhysicsComponent::CacheDefaultMeshTransformAndCollision()
+void UHitPhysicsComponent::CacheDefaultMeshState()
 {
 	if (const USkeletalMeshComponent* Mesh = GetOwnerMesh())
 	{
-		InitialMeshRelativeTransform = Mesh->GetRelativeTransform();
-		bHasCachedMeshTransform = true;
+		DefaultMeshRelativeTransform = Mesh->GetRelativeTransform();
+		DefaultMeshRelativeLocation = Mesh->GetRelativeLocation();
+		DefaultMeshAttachParent = Mesh->GetAttachParent();
+		DefaultMeshAttachSocketName = Mesh->GetAttachSocketName();
+		bHasCachedMeshState = true;
 	}
+}
+
+void UHitPhysicsComponent::ValidateRagdollSetup() const
+{
+	const USkeletalMeshComponent* Mesh = GetOwnerMesh();
+	if (Mesh == nullptr)
+	{
+		return;
+	}
+
+	if (PelvisBoneName != NAME_None && !Mesh->DoesSocketExist(PelvisBoneName))
+	{
+		UE_LOG(LogHitPhysics, Warning, TEXT("HitPhysics: Pelvis bone/socket '%s' is missing. Owner=%s"),
+			*PelvisBoneName.ToString(),
+			*GetNameSafe(GetOwner()));
+	}
+
+	if (Mesh->GetPhysicsAsset() == nullptr)
+	{
+		UE_LOG(LogHitPhysics, Warning, TEXT("HitPhysics: PhysicsAsset is missing. Owner=%s"), *GetNameSafe(GetOwner()));
+	}
+}
+
+void UHitPhysicsComponent::DrawDebugRagdoll() const
+{
+#if ENABLE_DRAW_DEBUG
+	const UWorld* World = GetWorld();
+	USkeletalMeshComponent* Mesh = GetOwnerMesh();
+	if (World == nullptr || Mesh == nullptr)
+	{
+		return;
+	}
+
+	const FVector PelvisLoc = GetPelvisWorldLocation();
+	const FVector NeckLoc = GetNeckWorldLocation();
+	DrawDebugLine(World, PelvisLoc, NeckLoc, FColor::Purple, false, DebugDrawLifetime, 0, 3.0f);
+	DrawDebugLine(World, PelvisLoc, PelvisLoc - FVector::UpVector * RagdollGroundTraceDistance, FColor::Yellow, false, DebugDrawLifetime, 0, 1.0f);
+
+	FHitResult GroundHit;
+	if (TraceGroundBelowPelvis(GroundHit) && GroundHit.bBlockingHit)
+	{
+		DrawDebugCrosshairs(World, GroundHit.ImpactPoint, FRotator::ZeroRotator, 20.0f, FColor::Magenta, false, DebugDrawLifetime, 0);
+	}
+
+	const FString StatusText = FString::Printf(
+		TEXT("Ragdoll Lin=%.0f Ang=%.0f"),
+		Mesh->GetPhysicsLinearVelocity(PelvisBoneName).Size(),
+		Mesh->GetPhysicsAngularVelocityInDegrees(PelvisBoneName).Size());
+	DrawDebugString(World, PelvisLoc + FVector(0.0f, 0.0f, 80.0f), StatusText, nullptr, FColor::White, 0.0f, true);
+#endif
 }
 
 void UHitPhysicsComponent::SaveCurrentCollisionState()
@@ -463,33 +713,40 @@ void UHitPhysicsComponent::RestoreCollisionState()
 	}
 }
 
-void UHitPhysicsComponent::RestoreCharacterFromRagdoll(const FHitResult& GroundHit)
+void UHitPhysicsComponent::LogMeshState(const TCHAR* Phase) const
 {
-	AActionCharacterBase* OwnerChar = GetOwnerCharacter();
-	USkeletalMeshComponent* Mesh = GetOwnerMesh();
-	UCapsuleComponent* Capsule = GetOwnerCapsule();
-	UCharacterMovementComponent* Movement = GetOwnerMovement();
-	if (OwnerChar == nullptr || Mesh == nullptr || Capsule == nullptr || Movement == nullptr)
+	const USkeletalMeshComponent* Mesh = GetOwnerMesh();
+	if (Mesh == nullptr)
 	{
 		return;
 	}
 
-	const FVector PelvisLocation = GetPelvisWorldLocation();
-	const float CapsuleHalfHeight = Capsule->GetScaledCapsuleHalfHeight();
-	const float TargetZ = GroundHit.bBlockingHit ? GroundHit.ImpactPoint.Z + CapsuleHalfHeight : OwnerChar->GetActorLocation().Z;
-	const FVector TargetLocation(PelvisLocation.X, PelvisLocation.Y, TargetZ);
+	const USceneComponent* CurrentParent = Mesh->GetAttachParent();
+	const FName CurrentSocket = Mesh->GetAttachSocketName();
+	const FTransform CurrentRelative = Mesh->GetRelativeTransform();
+	const bool bParentChanged = bHasCachedMeshState && CurrentParent != DefaultMeshAttachParent.Get();
+	const bool bSocketChanged = bHasCachedMeshState && CurrentSocket != DefaultMeshAttachSocketName;
+	const bool bRelativeChanged = bHasCachedMeshState && !CurrentRelative.Equals(DefaultMeshRelativeTransform, 0.1f);
 
-	OwnerChar->SetActorLocation(TargetLocation, false, nullptr, ETeleportType::TeleportPhysics);
-
-	Mesh->SetAllBodiesSimulatePhysics(false);
-	Mesh->SetSimulatePhysics(false);
-	Mesh->SetAllBodiesPhysicsBlendWeight(0.0f);
-	Mesh->AttachToComponent(Capsule, FAttachmentTransformRules::KeepRelativeTransform);
-	if (bHasCachedMeshTransform)
+	if (bParentChanged || bSocketChanged || bRelativeChanged)
 	{
-		Mesh->SetRelativeTransform(InitialMeshRelativeTransform);
+		UE_LOG(LogHitPhysics, Warning,
+			TEXT("HitPhysics MeshState[%s]: Parent=%s Socket=%s Rel=%s DefaultParent=%s DefaultSocket=%s DefaultRel=%s"),
+			Phase,
+			*GetNameSafe(CurrentParent),
+			*CurrentSocket.ToString(),
+			*CurrentRelative.ToString(),
+			*GetNameSafe(DefaultMeshAttachParent.Get()),
+			*DefaultMeshAttachSocketName.ToString(),
+			*DefaultMeshRelativeTransform.ToString());
 	}
-
-	RestoreCollisionState();
-	Movement->SetMovementMode(MOVE_Walking);
+	else
+	{
+		UE_LOG(LogHitPhysics, Verbose,
+			TEXT("HitPhysics MeshState[%s]: Parent=%s Socket=%s Rel=%s"),
+			Phase,
+			*GetNameSafe(CurrentParent),
+			*CurrentSocket.ToString(),
+			*CurrentRelative.ToString());
+	}
 }
