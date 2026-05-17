@@ -4,23 +4,14 @@
 #include "Char/ActionCharacterMovementComponent.h"
 #include "Char/ActionMonsterCharacter.h"
 #include "Char/ActionPlayerCharacter.h"
+#include "Combat/ActionCombatLibrary.h"
+#include "Combat/ActionCombatNotifies.h"
 #include "Combat/Components/ActionCombatComponent.h"
 #include "Combat/HitReact/HitReactTypes.h"
 #include "Common/ActionGameplayTags.h"
-#include "DrawDebugHelpers.h"
-#include "Engine/EngineTypes.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Kismet/KismetSystemLibrary.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogAttackFeature, Log, All);
-
-namespace AttackFeatureNotifies
-{
-	static const FName AttackHitCheck = TEXT("AttackHitCheck");
-	static const FName AttackComboWindowStart = TEXT("AttackComboWindowStart");
-	static const FName AttackTurnWindowStart = TEXT("AttackTurnWindowStart");
-	static const FName AttackDodgeCancelStart = TEXT("AttackDodgeCancelStart");
-}
 
 UAttackFeature::UAttackFeature()
 {
@@ -184,19 +175,19 @@ int32 UAttackFeature::GetNextComboIndex() const
 
 void UAttackFeature::OnNotify(FName NotifyName, const FBranchingPointNotifyPayload& /*Payload*/)
 {
-	if (NotifyName == AttackFeatureNotifies::AttackHitCheck)
+	if (NotifyName == ActionCombatNotifies::AttackHitCheck)
 	{
 		HandleHitCheck();
 	}
-	else if (NotifyName == AttackFeatureNotifies::AttackComboWindowStart)
+	else if (NotifyName == ActionCombatNotifies::AttackComboWindowStart)
 	{
 		HandleComboWindowStart();
 	}
-	else if (NotifyName == AttackFeatureNotifies::AttackTurnWindowStart)
+	else if (NotifyName == ActionCombatNotifies::AttackTurnWindowStart)
 	{
 		HandleTurnWindowStart();
 	}
-	else if (NotifyName == AttackFeatureNotifies::AttackDodgeCancelStart)
+	else if (NotifyName == ActionCombatNotifies::AttackDodgeCancelStart)
 	{
 		HandleDodgeCancelStart();
 	}
@@ -229,62 +220,25 @@ void UAttackFeature::HandleHitCheck()
 		return;
 	}
 
-	const FVector AttackCenter = Owner->GetActorLocation() + Owner->GetActorForwardVector() * HitCheckForwardOffset;
+	// HitContext 模板：填入所有"攻击者一侧决定"的字段。
+	// Library 会复制此模板用于每个被命中目标，并自动填 Attacker / HitLocation / HitDirection。
+	FHitContext Template;
+	Template.ReactType = EHitReactType::LightHit;  // 普攻默认轻击；最后一段连击可考虑改为 HeavyHit / HitFly
+	Template.DamageAmount = Owner->GetAttackPower();
+	Template.FeedbackScale = 1.0f;
 
-	if (bDrawDebugHitSphere)
-	{
-		DrawDebugSphere(Owner->GetWorld(), AttackCenter, HitCheckRadius, 16, FColor::Red, false, 1.0f);
-	}
+	FSphereAttackHitParams Params;
+	Params.Attacker = Owner;
+	Params.Center = Owner->GetActorLocation() + Owner->GetActorForwardVector() * HitCheckForwardOffset;
+	Params.Radius = HitCheckRadius;
+	Params.TargetClassFilter = AActionMonsterCharacter::StaticClass();
+	Params.HitContextTemplate = Template;
+	Params.HitLocationBackstep = 40.0f;
+	Params.bDrawDebugSphere = bDrawDebugHitSphere;
+	Params.DebugDrawDuration = 1.0f;
 
-	TArray<AActor*> Overlapped;
-	TArray<AActor*> Ignored;
-	Ignored.Add(Owner);
-
-	TArray<TEnumAsByte<EObjectTypeQuery>> ObjectTypes;
-	ObjectTypes.Add(UEngineTypes::ConvertToObjectType(ECC_Pawn));
-
-	UKismetSystemLibrary::SphereOverlapActors(
-		Owner,
-		AttackCenter,
-		HitCheckRadius,
-		ObjectTypes,
-		AActionMonsterCharacter::StaticClass(),
-		Ignored,
-		Overlapped);
-
-	for (AActor* Actor : Overlapped)
-	{
-		AActionMonsterCharacter* Monster = Cast<AActionMonsterCharacter>(Actor);
-		if (Monster == nullptr)
-		{
-			continue;
-		}
-
-		if (HitActorsThisSwing.Contains(Monster))
-		{
-			continue;
-		}
-
-		HitActorsThisSwing.Add(Monster);
-		UE_LOG(LogAttackFeature, Log, TEXT("AttackFeature: Hit %s for %.1f."), *GetNameSafe(Monster), Owner->GetAttackPower());
-
-		// 构造受击上下文：所有受击信息一次性打包，供 HitReceiver 三层调度使用。
-		// 关键设计：AttackFeature 自己不直接调 Damage / Feedback / React，
-		// 全部通过 HitReceiver 走，受击表现的所有变化都封装在受击者一侧。
-		FHitContext Ctx;
-		Ctx.Attacker = Owner;
-		// 命中位置取怪物胶囊体中心 + 玩家→怪物方向上的轻微回偏，看起来像"剑刃接触点"。
-		// 后期可换成武器 socket 位置（剑尖或刀刃中段）。
-		const FVector MonsterCenter = Monster->GetActorLocation();
-		const FVector ToMonster = (MonsterCenter - Owner->GetActorLocation()).GetSafeNormal();
-		Ctx.HitLocation = MonsterCenter - ToMonster * 40.0f;
-		Ctx.HitDirection = ToMonster;            // 攻击施加方向（世界坐标）
-		Ctx.ReactType = EHitReactType::LightHit; // 普攻默认轻击；最后一段连击可考虑改为 HeavyHit / HitFly
-		Ctx.DamageAmount = Owner->GetAttackPower();
-		Ctx.FeedbackScale = 1.0f;
-
-		Monster->ReceiveHit(Ctx);
-	}
+	const int32 HitCount = UActionCombatLibrary::PerformSphereAttackHit(Owner, Params, HitActorsThisSwing);
+	UE_LOG(LogAttackFeature, Verbose, TEXT("AttackFeature: HandleHitCheck hit %d new target(s)."), HitCount);
 }
 
 void UAttackFeature::HandleComboWindowStart()

@@ -15,6 +15,7 @@ namespace ActionGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG(Block_Move, "Block.Move");
 
 	UE_DEFINE_GAMEPLAY_TAG(Block_HitReact, "Block.HitReact");
+	UE_DEFINE_GAMEPLAY_TAG(Block_AIControl, "Block.AIControl");
 
 	UE_DEFINE_GAMEPLAY_TAG(Window_Attack_CanDodgeCancel, "Window.Attack.CanDodgeCancel");
 	UE_DEFINE_GAMEPLAY_TAG(Window_Attack_CanCombo, "Window.Attack.CanCombo");

@@ -22,6 +22,13 @@ namespace ActionGameplayTags
 	/** 在受击中，禁止进入新的攻击/移动等主动动作。由 HitReactFeature 启停时维护。 */
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Block_HitReact);
 
+	/**
+	 * Ragdoll / 死亡 / 强控等"AI 不应该决策"的状态期间挂上此 Tag。
+	 * BehaviorTree 根 Decorator 检测到此 Tag 即整树跳过，状态结束时自然恢复。
+	 * 由 HitPhysicsComponent 在进入/退出 Ragdoll 时维护。
+	 */
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Block_AIControl);
+
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Attack_CanDodgeCancel);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Attack_CanCombo);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Attack_CanTurn);
