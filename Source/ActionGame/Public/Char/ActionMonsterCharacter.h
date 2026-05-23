@@ -9,6 +9,7 @@
 
 class UAnimInstance;
 class UAnimMontage;
+class UNoiseListenerComponent;
 struct FBranchingPointNotifyPayload;
 struct FTimerHandle;
 
@@ -83,6 +84,49 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|AI|Alert")
 	float GetLastNoiseTime() const { return LastNoiseTime; }
 
+	// ---------- Sprint 4-C+++ Day 8: 报警广播 ----------
+
+	UFUNCTION(BlueprintPure, Category = "Action|AI|AlertBroadcast")
+	float GetAlertBroadcastRadius() const { return AlertBroadcastRadius; }
+
+	/** 当前怪确认目标进入 Combat 时调用。内部带冷却，成功后通知周围怪物。 */
+	UFUNCTION(BlueprintCallable, Category = "Action|AI|AlertBroadcast")
+	bool TryBroadcastCombatAlert(AActor* Target);
+
+	/** 收到其他怪物报警。返回 true 表示本怪实际接受了报警并进入 Combat。 */
+	UFUNCTION(BlueprintCallable, Category = "Action|AI|AlertBroadcast")
+	bool ReceiveCombatAlert(AActor* Target, AActionMonsterCharacter* Source);
+
+	// ---------- Sprint 4-C+ Day 6: 简化仇恨列表 ----------
+	//
+	// 最简版仇恨：只记录"攻击者 → 累计伤害"，不做衰减、不区分仇恨来源。
+	// 单玩家场景下退化为"优先攻击者"，但仇恨表接口已经做好，未来加同伴 / 多人时
+	// BTService_PickHatredTarget 切目标的逻辑不用改。
+	//
+	// 输入入口：HitReceiverComponent::ReceiveHit 末尾调 AddHatred(Attacker, DamageAmount)。
+	// 输出入口：BTService_PickHatredTarget 调 GetHighestHatredTarget() 写回 BB.TargetActor。
+	// 清空时机：死亡 / 离开 Combat（Combat→Alert 时仇恨已经无意义，下次进 Combat 重新累积）。
+
+	/** 累加指定 Actor 的仇恨值（一般等于本次受到的伤害量）。Source 为空 / 死亡时静默忽略。 */
+	UFUNCTION(BlueprintCallable, Category = "Action|AI|Hatred")
+	void AddHatred(AActor* Source, float Value);
+
+	/** 返回仇恨最高的有效目标。返回前会顺手清理无效 / 死亡条目。无候选返回 nullptr。 */
+	UFUNCTION(BlueprintCallable, Category = "Action|AI|Hatred")
+	AActor* GetHighestHatredTarget() const;
+
+	/** 返回当前仇恨表大小（去除无效项前的原始数量，仅用于 Debug）。 */
+	UFUNCTION(BlueprintPure, Category = "Action|AI|Hatred")
+	int32 GetHatredEntryCount() const;
+
+	/** 清空仇恨。死亡时自动调一次。 */
+	UFUNCTION(BlueprintCallable, Category = "Action|AI|Hatred")
+	void ClearHatred();
+
+	/** Debug 用：返回 Top N 仇恨条目（按值降序）。用于 AI.HatredDebug 画怪头顶。 */
+	struct FHatredEntry { TWeakObjectPtr<AActor> Target; float Value = 0.0f; };
+	void GetHatredTopEntries(int32 N, TArray<FHatredEntry>& OutEntries) const;
+
 	// ---------- IActionLockableInterface ----------
 
 	virtual bool CanBeLockedOn_Implementation() const override;
@@ -125,6 +169,35 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert|Movement", meta = (ClampMin = "0.0"))
 	float CombatMaxWalkSpeed = 400.0f;
 
+	/**
+	 * AlertState 切换防抖冷却（秒）。
+	 *  - 升级（Idle → Alert → Combat）：永远允许立刻应用。
+	 *  - 降级（Combat → Alert → Idle）：必须等冷却结束才能应用。
+	 * 防止"视觉刚拉到 Combat 又被听觉降回 Alert"这类肉眼可见的状态闪烁。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert", meta = (ClampMin = "0.0"))
+	float AlertChangeCooldown = 1.0f;
+
+	// ---------- Day 8: 报警广播 ----------
+
+	/** 非 Combat -> Combat 时是否向附近怪物广播确认目标。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|AlertBroadcast")
+	bool bEnableAlertBroadcast = true;
+
+	/** 报警半径（cm）。范围内的其他怪物会收到 Combat 目标。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|AlertBroadcast", meta = (ClampMin = "0.0"))
+	float AlertBroadcastRadius = 1500.0f;
+
+	/** 单只怪物报警冷却，避免反复进出 Combat 时刷广播。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|AlertBroadcast", meta = (ClampMin = "0.0"))
+	float AlertBroadcastCooldown = 5.0f;
+
+	// ---------- Day 5: 听觉感知 ----------
+
+	/** 怪物的"耳朵"。挂在 Owner 上，BeginPlay 自动注册到 AINoiseSubsystem。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|AI|Hearing", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UNoiseListenerComponent> NoiseListener;
+
 	/** 测试用怪物攻击距离。Day 4 先用于打通怪物攻击玩家的受击闭环，后续会迁到正式 AI/技能配置。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack", meta = (ClampMin = "0.0"))
 	float MonsterAttackRange = 200.0f;
@@ -153,7 +226,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack|HitFly", meta = (ClampMin = "0.0"))
 	float MonsterAttackHitFlyZStrength = 400.0f;
 
-	/** Day 5 先作为入口开关，真正 Ragdoll 会在 Day 6 完整实现。 */
+	/** 命中玩家时是否走 Ragdoll（HitFly + 物理布娃娃）。关闭时只走击飞 LaunchCharacter。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack|HitFly")
 	bool bMonsterAttackUseRagdoll = true;
 
@@ -184,6 +257,19 @@ protected:
 	bool bDrawDebugHitSphere = true;
 
 private:
+	/** 上一次 AlertState 实际改变的世界时间（防抖用）。 */
+	float LastAlertStateChangeTime = -1000.0f;
+
+	/** 上一次发出报警广播的世界时间。 */
+	float LastAlertBroadcastTime = -1000.0f;
+
+	/**
+	 * 仇恨表：Attacker → 累计伤害。
+	 * 不加 UPROPERTY：TMap<TWeakObjectPtr, float> 反射支持有限；GC 由 TWeakObjectPtr 自身处理，
+	 * GetHighestHatredTarget 会顺手清理失效项。
+	 */
+	TMap<TWeakObjectPtr<AActor>, float> HatredMap;
+
 	// ---------- 攻击运行时状态 ----------
 
 	/** 上一次攻击发起的 World Time（用于 Cooldown 计算）。 */

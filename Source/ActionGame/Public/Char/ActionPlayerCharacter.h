@@ -164,6 +164,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|Animation")
 	EActionMovementGait GetCurrentGait() const { return CurrentGait; }
 
+	UFUNCTION(BlueprintPure, Category = "Action|AI|Hearing")
+	float GetAttackNoiseLoudness() const { return AttackNoiseLoudness; }
+
 	// ---------- 闪避充能查询（旧 API 保持兼容） ----------
 
 	UFUNCTION(BlueprintPure, Category = "Action|Combat|Dodge")
@@ -274,6 +277,26 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Input|Look", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
 	float LockedLookPitchSensitivity = 0.3f;
 
+	// ---------- 听觉感知发声（Day 5） ----------
+
+	/**
+	 * 奔跑发声节流间隔（秒）。玩家以 Sprint 档速度 + 在地面时，每 NoiseReportInterval
+	 * 报一次 Footstep 噪音给 UAINoiseSubsystem。Walk/Jog 默认不发声。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Hearing", meta = (AllowPrivateAccess = "true", ClampMin = "0.05"))
+	float NoiseReportInterval = 1.0f;
+
+	/** 奔跑脚步声的传播半径（cm）。一般 2000~2500 之间。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Hearing", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
+	float FootstepNoiseLoudness = 1800.0f;
+
+	/**
+	 * 攻击命中噪音的传播半径（cm）。
+	 * 命中后顺手由 AttackFeature 报一次 Combat 噪音，把附近未察觉的怪也拉到 Alert。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Hearing", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
+	float AttackNoiseLoudness = 2500.0f;
+
 	// ---------- Feature 配置（编辑器里指定子类） ----------
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Feature")
@@ -309,6 +332,9 @@ protected:
 	bool bMontageNotifyDelegateBound = false;
 
 	bool bWasInAirLastFrame = false;
+
+	/** 上一次脚步声 Report 的世界时间。-1 表示从未 Report。 */
+	float LastFootstepReportTime = -1000.0f;
 
 	/** 当前实际生效的速度档位。Sprint 输入 + 锁定状态共同决定。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Movement", meta = (AllowPrivateAccess = "true"))

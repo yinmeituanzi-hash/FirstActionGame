@@ -1,4 +1,6 @@
 #include "Char/ActionPlayerCharacter.h"
+#include "AI/Noise/AINoiseSubsystem.h"
+#include "AI/Noise/AINoiseTypes.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Camera/CameraComponent.h"
@@ -202,6 +204,30 @@ void AActionPlayerCharacter::Tick(float DeltaSeconds)
 			JumpFeature->NotifyFallingFromLedge();
 		}
 		bWasInAirLastFrame = bInAirNow;
+	}
+
+	// 3) Day 5：奔跑时定期 ReportNoise(Footstep) 给 UAINoiseSubsystem。
+	// 走时间片而不是绑动画 Notify：
+	//  - 不依赖具体奔跑蒙太奇 / BlendSpace 资源里有没有 Notify
+	//  - 节流逻辑集中在一处，CD 调整不需要回去改美术资源
+	//  - 攻击 / 闪避 / 跳跃中也会自动暂停（这些时机 CurrentGait 不是 Sprint）
+	if (NoiseReportInterval > 0.0f && CurrentGait == EActionMovementGait::Sprint)
+	{
+		UCharacterMovementComponent* Movement = GetCharacterMovement();
+		const bool bGrounded = (Movement != nullptr && !Movement->IsFalling());
+		const float Speed = GetVelocity().Size2D();
+		if (bGrounded && Speed > 100.0f)
+		{
+			const float Now = GetWorld() != nullptr ? GetWorld()->GetTimeSeconds() : 0.0f;
+			if (Now - LastFootstepReportTime >= NoiseReportInterval)
+			{
+				if (UAINoiseSubsystem* NoiseSys = UAINoiseSubsystem::Get(this))
+				{
+					NoiseSys->ReportNoise(GetActorLocation(), FootstepNoiseLoudness, this, EAINoiseCategory::Footstep);
+				}
+				LastFootstepReportTime = Now;
+			}
+		}
 	}
 }
 

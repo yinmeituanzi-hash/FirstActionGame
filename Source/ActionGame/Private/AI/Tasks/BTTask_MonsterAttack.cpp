@@ -14,6 +14,7 @@ EBTNodeResult::Type UBTTask_MonsterAttack::ExecuteTask(UBehaviorTreeComponent& O
 {
 	FBTMonsterAttackMemory* Memory = reinterpret_cast<FBTMonsterAttackMemory*>(NodeMemory);
 	Memory->ElapsedTime = 0.0f;
+	Memory->bAttackStarted = false;
 
 	AAIController* AIOwner = OwnerComp.GetAIOwner();
 	if (AIOwner == nullptr)
@@ -27,10 +28,11 @@ EBTNodeResult::Type UBTTask_MonsterAttack::ExecuteTask(UBehaviorTreeComponent& O
 		return EBTNodeResult::Failed;
 	}
 
-	// 冷却中：BT 应该走别的分支（追击 / 巡逻），不应该等在这里。
+	// 攻击节奏冷却中：保持当前抽中的攻击分支，等冷却结束再真正开打。
+	// 如果目标离开攻击范围，Attack Sequence 上的 IsInAttackRange Decorator 会 abort 本 Task。
 	if (Monster->GetAttackCooldownRemaining() > 0.0f)
 	{
-		return EBTNodeResult::Failed;
+		return EBTNodeResult::InProgress;
 	}
 
 	Monster->StartMonsterAttack();
@@ -41,6 +43,7 @@ EBTNodeResult::Type UBTTask_MonsterAttack::ExecuteTask(UBehaviorTreeComponent& O
 	{
 		return EBTNodeResult::Failed;
 	}
+	Memory->bAttackStarted = true;
 
 	// 攻击是异步动作：Task 不能立刻 Success，否则 BT 会在同一轮继续往下执行。
 	// 返回 InProgress 后，TickTask 会一直等到 Character 端报告攻击结束。
@@ -54,9 +57,33 @@ void UBTTask_MonsterAttack::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* N
 
 	AAIController* AIOwner = OwnerComp.GetAIOwner();
 	AActionMonsterCharacter* Monster = AIOwner ? Cast<AActionMonsterCharacter>(AIOwner->GetCharacter()) : nullptr;
-	if (Monster == nullptr || Monster->IsDead())
+	if (Monster == nullptr || Monster->IsDead() || !Monster->CanAttack())
 	{
 		FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
+		return;
+	}
+
+	if (!Memory->bAttackStarted)
+	{
+		if (Monster->GetAttackCooldownRemaining() > 0.0f)
+		{
+			// 普通 return 不会结束 BTTask；节点仍保持 InProgress，下一帧继续 TickTask。
+			// 只有 FinishLatentTask 才会把本节点结算为 Failed/Succeeded。
+			if (Memory->ElapsedTime >= MaxExecutionTime)
+			{
+				FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
+			}
+			return;
+		}
+
+		Monster->StartMonsterAttack();
+		if (!Monster->IsAttacking())
+		{
+			FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
+			return;
+		}
+
+		Memory->bAttackStarted = true;
 		return;
 	}
 

@@ -40,6 +40,13 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Blackboard")
 	FBlackboardKeySelector LastNoiseLocationKey;
 
+	/**
+	 * 用于把 Owner 的 Block.AIControl Tag 同步到 BB（Day 6 起启用）。
+	 * BT 根 Selector 上挂 Decorator: "IsBlocked Is NOT Set, Observer Aborts: Self"。
+	 */
+	UPROPERTY(EditAnywhere, Category = "Blackboard")
+	FBlackboardKeySelector IsBlockedKey;
+
 protected:
 	virtual void InitializeFromAsset(UBehaviorTree& Asset) override;
 	virtual void OnBecomeRelevant(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) override;

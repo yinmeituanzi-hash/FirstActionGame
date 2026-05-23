@@ -8,14 +8,15 @@
  * 命令怪物执行一次攻击。
  *
  * 设计要点：
- *  - ExecuteTask 调 Character->StartMonsterAttack()，立刻返回 InProgress。
- *  - TickTask 每帧检查 Character->IsAttacking()，==false 时 FinishLatentTask(Success)。
+ *  - 如果攻击节奏冷却已好，ExecuteTask 调 Character->StartMonsterAttack()，返回 InProgress。
+ *  - 如果还在攻击节奏冷却中，Task 保持 InProgress 等冷却结束，再发起攻击。
+ *  - TickTask 在攻击启动前等 Cooldown；攻击启动后等 Character->IsAttacking() 变 false。
  *  - 这种"启动 + 等待完成"的异步模式是 010 BTTask_BaseUseSkill 的核心套路。
  *
  * 失败路径：
  *  - 没有 AIController / Pawn / Character → Failed（BT 数据问题）
  *  - Character->IsDead 或 !CanAttack → Failed（让 BT 跳到下一选项）
- *  - StartMonsterAttack 调用后 IsAttacking 仍为 false → Failed（攻击没起来，比如冷却中）
+ *  - StartMonsterAttack 调用后 IsAttacking 仍为 false → Failed（攻击没起来，比如 Montage 未配置）
  *  - 超时（MaxExecutionTime）→ Succeeded（兜底，避免 BT 卡死）
  *
  * 命中机制：
@@ -29,6 +30,7 @@ struct FBTMonsterAttackMemory
 	GENERATED_BODY()
 
 	float ElapsedTime = 0.0f;
+	bool bAttackStarted = false;
 };
 
 UCLASS()

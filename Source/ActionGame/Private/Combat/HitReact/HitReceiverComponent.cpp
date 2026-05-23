@@ -1,5 +1,6 @@
 #include "Combat/HitReact/HitReceiverComponent.h"
 #include "Char/ActionCharacterBase.h"
+#include "Char/ActionMonsterCharacter.h"
 #include "Combat/Feedback/HitFeedbackComponent.h"
 #include "Combat/HitReact/HitPhysicsComponent.h"
 #include "Combat/HitReact/HitReactComponent.h"
@@ -36,6 +37,16 @@ void UHitReceiverComponent::ReceiveHit(const FHitContext& HitCtx)
 	DispatchFeedback(HitCtx);
 	DispatchReact(HitCtx);
 	DispatchPhysics(HitCtx);
+
+	// Day 6: 受击 → 仇恨。只对怪物 Owner 累加，玩家不需要仇恨表。
+	// 放在三层调度之后：即使霸体跳过 React、Ragdoll 跳过 Physics，仇恨该累还得累，
+	// 这样玩家无论是不是把怪打飞，都能让怪重新锁定到玩家身上（伤害换仇恨）。
+	if (AActionMonsterCharacter* MonsterOwner = Cast<AActionMonsterCharacter>(GetOwner()))
+	{
+		// 用 DamageAmount 作为仇恨值。简化策略：单玩家场景下任何伤害都来自玩家，
+		// 退化为"优先攻击者"；多目标时谁打的多谁仇恨高，行为自然。
+		MonsterOwner->AddHatred(HitCtx.Attacker, HitCtx.DamageAmount);
+	}
 
 	OnHitReceived.Broadcast(HitCtx);
 }

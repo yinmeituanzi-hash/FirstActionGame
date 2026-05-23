@@ -1,7 +1,14 @@
 #include "Char/ActionMonsterCharacter.h"
 #include "AI/ActionMonsterAIController.h"
+#include "AI/ActionAIBlackboardKeys.h"
+#include "AI/Alert/AlertBroadcastSubsystem.h"
+#include "AI/Noise/NoiseListenerComponent.h"
+#include "AIController.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
+#include "BehaviorTree/BehaviorTreeComponent.h"
+#include "BehaviorTree/BlackboardComponent.h"
+#include "BrainComponent.h"
 #include "Combat/ActionCombatLibrary.h"
 #include "Combat/ActionCombatNotifies.h"
 #include "Components/SkeletalMeshComponent.h"
@@ -23,6 +30,10 @@ AActionMonsterCharacter::AActionMonsterCharacter(const FObjectInitializer& Objec
 	// PlacedInWorldOrSpawned 表示无论是放在关卡里还是 Spawn 出来的怪都自动 Possess。
 	AIControllerClass = AActionMonsterAIController::StaticClass();
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+
+	// Sprint 4-B++ Day 5：挂上"耳朵"。BeginPlay 时会自动注册到 UAINoiseSubsystem。
+	// 任意继承 AActionMonsterCharacter 的怪默认就具备听觉，不需要每个 BP 手动加。
+	NoiseListener = CreateDefaultSubobject<UNoiseListenerComponent>(TEXT("NoiseListener"));
 }
 
 void AActionMonsterCharacter::BeginPlay()
@@ -83,6 +94,23 @@ void AActionMonsterCharacter::Die()
 	Super::Die();
 
 	UE_LOG(LogActionMonsterCharacter, Log, TEXT("ActionMonsterCharacter: Monster died."));
+
+	// Day 6: 死亡是不可逆状态，BT 走 StopLogic 永久停，不走 Block.AIControl Tag 路径。
+	// 区别：受击/Ragdoll 用 Tag 是因为起身后要恢复 BT；死亡不需要"恢复"。
+	if (AController* MonsterController = GetController())
+	{
+		if (AActionMonsterAIController* AIC = Cast<AActionMonsterAIController>(MonsterController))
+		{
+			if (UBrainComponent* Brain = AIC->BrainComponent)
+			{
+				Brain->StopLogic(TEXT("Dead"));
+			}
+		}
+	}
+
+	// Day 6: 死亡时清空仇恨列表，避免怪物死后还把"上一次攻击者"留在身上。
+	// 等下一步 HatredMap 加上后 ClearHatred 会真正清空 Map；此刻是空操作占位。
+	ClearHatred();
 
 	float FinalLifeSpan = DeathLifeSpan;
 
@@ -314,9 +342,36 @@ void AActionMonsterCharacter::SetAlertState(EAIAlertState NewState)
 		return;
 	}
 
+	// 抖动保护：升级方向（数值变大：Idle=0 → Alert=1 → Combat=2）允许立即生效；
+	// 降级方向必须等 AlertChangeCooldown 结束。避免视觉/听觉同帧拉扯产生肉眼可见的状态闪烁。
+	// 死亡是不可逆 Idle，跳过冷却。
+	const bool bIsUpgrade = static_cast<uint8>(NewState) > static_cast<uint8>(AlertState);
+	if (!bIsUpgrade && !IsDead() && AlertChangeCooldown > 0.0f)
+	{
+		const UWorld* World = GetWorld();
+		const float Now = World != nullptr ? World->GetTimeSeconds() : 0.0f;
+		const float Elapsed = Now - LastAlertStateChangeTime;
+		if (Elapsed < AlertChangeCooldown)
+		{
+			UE_LOG(
+				LogActionMonsterCharacter,
+				Verbose,
+				TEXT("ActionMonsterCharacter: SetAlertState downgrade %d -> %d suppressed (cooldown %.2fs remaining)."),
+				static_cast<uint8>(AlertState),
+				static_cast<uint8>(NewState),
+				AlertChangeCooldown - Elapsed);
+			return;
+		}
+	}
+
 	const EAIAlertState OldState = AlertState;
 	AlertState = NewState;
 	ApplyAlertStateMovementSettings();
+
+	if (const UWorld* World = GetWorld())
+	{
+		LastAlertStateChangeTime = World->GetTimeSeconds();
+	}
 
 	UE_LOG(
 		LogActionMonsterCharacter,
@@ -337,6 +392,92 @@ void AActionMonsterCharacter::SetLastNoiseLocation(const FVector& InLocation)
 	{
 		LastNoiseTime = World->GetTimeSeconds();
 	}
+}
+
+bool AActionMonsterCharacter::TryBroadcastCombatAlert(AActor* Target)
+{
+	if (!bEnableAlertBroadcast || IsDead() || Target == nullptr || AlertBroadcastRadius <= 0.0f)
+	{
+		return false;
+	}
+
+	if (const AActionCharacterBase* TargetChar = Cast<AActionCharacterBase>(Target))
+	{
+		if (TargetChar->IsDead())
+		{
+			return false;
+		}
+	}
+
+	UWorld* World = GetWorld();
+	if (World == nullptr)
+	{
+		return false;
+	}
+
+	const float Now = World->GetTimeSeconds();
+	if (AlertBroadcastCooldown > 0.0f && Now - LastAlertBroadcastTime < AlertBroadcastCooldown)
+	{
+		UE_LOG(
+			LogActionMonsterCharacter,
+			Verbose,
+			TEXT("ActionMonsterCharacter: Alert broadcast suppressed by cooldown %.2fs. Owner=%s"),
+			AlertBroadcastCooldown - (Now - LastAlertBroadcastTime),
+			*GetNameSafe(this));
+		return false;
+	}
+
+	UAlertBroadcastSubsystem* AlertSubsystem = UAlertBroadcastSubsystem::Get(this);
+	if (AlertSubsystem == nullptr)
+	{
+		return false;
+	}
+
+	LastAlertBroadcastTime = Now;
+	const int32 ReceiverCount = AlertSubsystem->BroadcastAlert(this, Target, AlertBroadcastRadius);
+	return ReceiverCount > 0;
+}
+
+bool AActionMonsterCharacter::ReceiveCombatAlert(AActor* Target, AActionMonsterCharacter* Source)
+{
+	if (Target == nullptr || Source == nullptr || Source == this || IsDead())
+	{
+		return false;
+	}
+
+	if (AlertState == EAIAlertState::Combat)
+	{
+		return false;
+	}
+
+	if (const AActionCharacterBase* TargetChar = Cast<AActionCharacterBase>(Target))
+	{
+		if (TargetChar->IsDead())
+		{
+			return false;
+		}
+	}
+
+	AAIController* AIController = Cast<AAIController>(GetController());
+	UBlackboardComponent* Blackboard = AIController != nullptr ? AIController->GetBlackboardComponent() : nullptr;
+	if (Blackboard != nullptr)
+	{
+		Blackboard->SetValueAsObject(ActionAIBlackboardKeys::TargetActor, Target);
+		Blackboard->SetValueAsVector(ActionAIBlackboardKeys::TargetLocation, Target->GetActorLocation());
+		Blackboard->SetValueAsBool(ActionAIBlackboardKeys::IsInAttackRange, IsTargetInAttackRange(Target));
+	}
+
+	SetAlertState(EAIAlertState::Combat);
+
+	UE_LOG(
+		LogActionMonsterCharacter,
+		Log,
+		TEXT("ActionMonsterCharacter: Received combat alert. Owner=%s Source=%s Target=%s"),
+		*GetNameSafe(this),
+		*GetNameSafe(Source),
+		*GetNameSafe(Target));
+
+	return true;
 }
 
 void AActionMonsterCharacter::ApplyAlertStateMovementSettings()
@@ -394,6 +535,111 @@ void AActionMonsterCharacter::OnLockedOff_Implementation()
 {
 	bIsBeingLockedOn = false;
 	UE_LOG(LogActionMonsterCharacter, Log, TEXT("ActionMonsterCharacter: Locked off."));
+}
+
+// ---------- Sprint 4-C+ Day 6: 简化仇恨列表 ----------
+
+void AActionMonsterCharacter::AddHatred(AActor* Source, float Value)
+{
+	if (Source == nullptr || Source == this || Value <= 0.0f)
+	{
+		return;
+	}
+
+	// 死亡的攻击者也别累。比如玩家死后 DOT 还在跳血，怪没必要把仇恨记给一个尸体。
+	if (const AActionCharacterBase* SourceChar = Cast<AActionCharacterBase>(Source))
+	{
+		if (SourceChar->IsDead())
+		{
+			return;
+		}
+	}
+
+	TWeakObjectPtr<AActor> Key(Source);
+	float& Current = HatredMap.FindOrAdd(Key);
+	Current += Value;
+
+	UE_LOG(
+		LogActionMonsterCharacter,
+		Verbose,
+		TEXT("ActionMonsterCharacter: AddHatred(%s, %.1f) → total %.1f. Owner=%s"),
+		*GetNameSafe(Source),
+		Value,
+		Current,
+		*GetNameSafe(this));
+}
+
+AActor* AActionMonsterCharacter::GetHighestHatredTarget() const
+{
+	AActor* Best = nullptr;
+	float BestValue = 0.0f;
+
+	// 顺手清理无效项。const 接口里要清理 → const_cast 一下 HatredMap，是合理的"缓存维护"用法。
+	TMap<TWeakObjectPtr<AActor>, float>& Map = const_cast<TMap<TWeakObjectPtr<AActor>, float>&>(HatredMap);
+	for (auto It = Map.CreateIterator(); It; ++It)
+	{
+		AActor* Candidate = It->Key.Get();
+		if (Candidate == nullptr || !IsValid(Candidate))
+		{
+			It.RemoveCurrent();
+			continue;
+		}
+		if (const AActionCharacterBase* CharCandidate = Cast<AActionCharacterBase>(Candidate))
+		{
+			if (CharCandidate->IsDead())
+			{
+				It.RemoveCurrent();
+				continue;
+			}
+		}
+		if (It->Value > BestValue)
+		{
+			BestValue = It->Value;
+			Best = Candidate;
+		}
+	}
+	return Best;
+}
+
+int32 AActionMonsterCharacter::GetHatredEntryCount() const
+{
+	return HatredMap.Num();
+}
+
+void AActionMonsterCharacter::ClearHatred()
+{
+	HatredMap.Reset();
+}
+
+void AActionMonsterCharacter::GetHatredTopEntries(int32 N, TArray<FHatredEntry>& OutEntries) const
+{
+	OutEntries.Reset();
+	if (N <= 0)
+	{
+		return;
+	}
+
+	// 拷贝出来排序，避免在 const 上下文修改源 Map 的迭代顺序。
+	TArray<FHatredEntry> All;
+	All.Reserve(HatredMap.Num());
+	for (const TPair<TWeakObjectPtr<AActor>, float>& Pair : HatredMap)
+	{
+		if (!Pair.Key.IsValid())
+		{
+			continue;
+		}
+		FHatredEntry Entry;
+		Entry.Target = Pair.Key;
+		Entry.Value = Pair.Value;
+		All.Add(Entry);
+	}
+	All.Sort([](const FHatredEntry& A, const FHatredEntry& B) { return A.Value > B.Value; });
+
+	const int32 Count = FMath::Min(N, All.Num());
+	for (int32 i = 0; i < Count; ++i)
+	{
+		OutEntries.Add(All[i]);
+	}
 }
 
 void AActionMonsterCharacter::FreezeDeathPose()

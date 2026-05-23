@@ -33,4 +33,12 @@ namespace ActionAIBlackboardKeys
 
 	/** 最近一次听到的声音位置。Type=Vector。Sprint 4-B++ 才用，现在是占位。 */
 	const FName LastNoiseLocation = TEXT("LastNoiseLocation");
+
+	/**
+	 * 是否被外部状态阻塞 AI 决策。Type=Bool。Sprint 4-C Day 6 起启用。
+	 * 由 BTService_AlertStateTick 每 Tick 从 Owner.HasActionTag(Block.AIControl) 同步过来。
+	 * BT 根 Selector 上挂 Blackboard Decorator: "IsBlocked Is NOT Set, Observer Aborts: Self"，
+	 * Tag 命中时整树跳过；Tag 摘掉时下一帧 BT 自动恢复。
+	 */
+	const FName IsBlocked = TEXT("IsBlocked");
 }

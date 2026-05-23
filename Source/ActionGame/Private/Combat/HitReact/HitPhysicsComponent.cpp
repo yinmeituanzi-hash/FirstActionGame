@@ -598,6 +598,9 @@ void UHitPhysicsComponent::AddRagdollBlockTags()
 		OwnerChar->AddActionTagExternal(ActionGameplayTags::Block_Dodge);
 		OwnerChar->AddActionTagExternal(ActionGameplayTags::Block_Move);
 		OwnerChar->AddActionTagExternal(ActionGameplayTags::Block_HitReact);
+		// Day 6: Ragdoll 期间冻结 BT。AlertStateTick Service 0.2s 内同步到 BB.IsBlocked，
+		// BT 根 Decorator 看到 IsBlocked=true 整树跳过；起身完成 ClearRagdollBlockTags 后自然恢复。
+		OwnerChar->AddActionTagExternal(ActionGameplayTags::Block_AIControl);
 	}
 }
 
@@ -610,6 +613,7 @@ void UHitPhysicsComponent::ClearRagdollBlockTags()
 		OwnerChar->RemoveActionTagExternal(ActionGameplayTags::Block_Dodge);
 		OwnerChar->RemoveActionTagExternal(ActionGameplayTags::Block_Move);
 		OwnerChar->RemoveActionTagExternal(ActionGameplayTags::Block_HitReact);
+		OwnerChar->RemoveActionTagExternal(ActionGameplayTags::Block_AIControl);
 	}
 }
 

@@ -1,4 +1,6 @@
 #include "Combat/ActionFeatures/AttackFeature.h"
+#include "AI/Noise/AINoiseSubsystem.h"
+#include "AI/Noise/AINoiseTypes.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Char/ActionCharacterMovementComponent.h"
@@ -239,6 +241,18 @@ void UAttackFeature::HandleHitCheck()
 
 	const int32 HitCount = UActionCombatLibrary::PerformSphereAttackHit(Owner, Params, HitActorsThisSwing);
 	UE_LOG(LogAttackFeature, Verbose, TEXT("AttackFeature: HandleHitCheck hit %d new target(s)."), HitCount);
+
+	// Day 5：每次 HitCheck Notify 都顺手 Report 一次 Combat 噪音，让附近未察觉的怪进入 Alert。
+	// 即使本次没命中（HitCount==0）也要报——挥空也会有刀风 / 武器破空声。
+	// 由 AnimNotify 触发等于天然带"一段攻击只响一次"的去重，不需要额外节流。
+	if (UAINoiseSubsystem* NoiseSys = UAINoiseSubsystem::Get(Owner))
+	{
+		NoiseSys->ReportNoise(
+			Owner->GetActorLocation(),
+			Owner->GetAttackNoiseLoudness(),
+			Owner,
+			EAINoiseCategory::Combat);
+	}
 }
 
 void UAttackFeature::HandleComboWindowStart()
