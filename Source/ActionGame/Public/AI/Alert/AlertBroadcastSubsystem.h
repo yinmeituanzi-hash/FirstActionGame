@@ -4,7 +4,7 @@
 #include "Subsystems/WorldSubsystem.h"
 #include "AlertBroadcastSubsystem.generated.h"
 
-class AActionMonsterCharacter;
+class UAlertComponent;
 
 /**
  * Sprint 4-C+++ Day 8：怪物报警广播中心。
@@ -29,8 +29,15 @@ public:
 	 *
 	 * @return 实际通知到的怪物数量。
 	 */
-	int32 BroadcastAlert(AActionMonsterCharacter* Source, AActor* Target, float Radius);
+	void RegisterAlertComponent(UAlertComponent* AlertComponent);
+	void UnregisterAlertComponent(UAlertComponent* AlertComponent);
+
+	int32 BroadcastAlert(UAlertComponent* Source, AActor* Target, float Radius);
 
 	/** 控制台命令 AI.AlertBroadcastDebug。1=画广播半径球和接收者连线。 */
 	static int32 GDebugDrawAlertBroadcast;
+
+private:
+	UPROPERTY()
+	TSet<TObjectPtr<UAlertComponent>> RegisteredAlertComponents;
 };

@@ -43,6 +43,7 @@ AActionPlayerCharacter::AActionPlayerCharacter(const FObjectInitializer& ObjectI
 	: Super(ObjectInitializer)
 {
 	PrimaryActorTick.bCanEverTick = true;
+	CombatTeam = EActionCombatTeam::Player;
 
 	// ---------- 相机 ----------
 	CameraBoom = CreateDefaultSubobject<USpringArmComponent>(TEXT("CameraBoom"));
@@ -308,8 +309,9 @@ void AActionPlayerCharacter::Move(const FInputActionValue& Value)
 	const FVector ForwardDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
 	const FVector RightDirection = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
 
-	AddMovementInput(ForwardDirection, MovementVector.Y);
-	AddMovementInput(RightDirection, MovementVector.X);
+	const float InputScale = FMath::Max(MoveInputScale, 0.0f);
+	AddMovementInput(ForwardDirection, MovementVector.Y * InputScale);
+	AddMovementInput(RightDirection, MovementVector.X * InputScale);
 }
 
 void AActionPlayerCharacter::ClearMoveInput()
@@ -719,12 +721,31 @@ void AActionPlayerCharacter::UpdateCurrentGait()
 	}
 
 	CurrentGait = DesiredGait;
-	Movement->MaxWalkSpeed = TargetSpeed;
+	Movement->MaxWalkSpeed = TargetSpeed * FMath::Max(MaxSpeedMultiplier, 0.0f);
 }
 
 void AActionPlayerCharacter::OnLockOnTargetChangedHandler(AActor* /*NewTarget*/)
 {
 	// 进出锁定时重算速度档：锁定时强制 Jog（避免 Sprint 状态下侧步动画错乱）。
+	UpdateCurrentGait();
+}
+
+void AActionPlayerCharacter::SetMovementControlScales(float InMoveInputScale, float InMaxSpeedMultiplier)
+{
+	MoveInputScale = FMath::Max(InMoveInputScale, 0.0f);
+	MaxSpeedMultiplier = FMath::Max(InMaxSpeedMultiplier, 0.0f);
+	UpdateCurrentGait();
+}
+
+void AActionPlayerCharacter::ClearMovementControlScales()
+{
+	MoveInputScale = 1.0f;
+	MaxSpeedMultiplier = 1.0f;
+	UpdateCurrentGait();
+}
+
+void AActionPlayerCharacter::RefreshMovementSettings()
+{
 	UpdateCurrentGait();
 }
 

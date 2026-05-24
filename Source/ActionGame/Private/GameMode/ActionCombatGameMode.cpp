@@ -64,12 +64,8 @@ void AActionCombatGameMode::CacheMonsterSpawnPoints()
 		}
 	}
 
-	if (CachedMonsterSpawnPoints.Num() > 0)
-	{
-		return;
-	}
-
-	// 如果还没有显式配置，就退回到按 Tag 自动搜集的方式。
+	// 同时按 Tag 自动搜集。这样测试关卡只要复制 TargetPoint 并加 MonsterSpawn Tag，
+	// 开局就会在所有点生成怪物，不需要同步维护 InitialMonsterCount。
 	UWorld* World = GetWorld();
 	if (World == nullptr)
 	{
@@ -81,7 +77,7 @@ void AActionCombatGameMode::CacheMonsterSpawnPoints()
 		ATargetPoint* SpawnPoint = *It;
 		if (IsValid(SpawnPoint) && SpawnPoint->ActorHasTag(MonsterSpawnPointTag))
 		{
-			CachedMonsterSpawnPoints.Add(SpawnPoint);
+			CachedMonsterSpawnPoints.AddUnique(SpawnPoint);
 		}
 	}
 }
@@ -100,8 +96,7 @@ void AActionCombatGameMode::SpawnInitialMonsters()
 		return;
 	}
 
-	const int32 SpawnCount = FMath::Min(InitialMonsterCount, CachedMonsterSpawnPoints.Num());
-	for (int32 Index = 0; Index < SpawnCount; ++Index)
+	for (int32 Index = 0; Index < CachedMonsterSpawnPoints.Num(); ++Index)
 	{
 		ATargetPoint* SpawnPoint = CachedMonsterSpawnPoints[Index];
 		if (!IsValid(SpawnPoint))

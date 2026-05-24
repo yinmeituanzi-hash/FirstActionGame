@@ -3,6 +3,7 @@
 #include "Common/ActionGameplayTags.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Controller.h"
+#include "TimerManager.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogJumpFeature, Log, All);
 
@@ -76,6 +77,8 @@ void UNormalJumpFeature::DoSingleJump(ENormalJumpState NewState)
 		return;
 	}
 
+	RestoreMovementSettings();
+
 	const float ZSpeed = (NewState == ENormalJumpState::FirstJump) ? FirstJumpZVelocity : SecondJumpZVelocity;
 
 	FVector LaunchVelocity(0.0f, 0.0f, ZSpeed);
@@ -103,6 +106,8 @@ void UNormalJumpFeature::NotifyLanded()
 	UE_LOG(LogJumpFeature, Log, TEXT("JumpFeature: landed, reset jump count."));
 	JumpCount = 0;
 	CurrentJumpState = ENormalJumpState::Grounded;
+
+	StartLandingStartup();
 }
 
 void UNormalJumpFeature::NotifyFallingFromLedge()
@@ -115,4 +120,130 @@ void UNormalJumpFeature::NotifyFallingFromLedge()
 		CurrentJumpState = ENormalJumpState::Falling;
 		UE_LOG(LogJumpFeature, Log, TEXT("JumpFeature: falling from ledge, consume first jump implicitly."));
 	}
+}
+
+void UNormalJumpFeature::StartLandingStartup()
+{
+	AActionPlayerCharacter* Owner = OwnerChar.Get();
+	if (Owner == nullptr || Owner->IsDead())
+	{
+		return;
+	}
+
+	UCharacterMovementComponent* Movement = Owner->GetCharacterMovement();
+	if (Movement == nullptr)
+	{
+		return;
+	}
+
+	ClearLandingTimers();
+	RestoreMovementSettings();
+	CacheMovementSettings(*Movement);
+
+	FVector Velocity = Movement->Velocity;
+	Velocity.X *= LandingHorizontalVelocityScale;
+	Velocity.Y *= LandingHorizontalVelocityScale;
+	Movement->Velocity = Velocity;
+
+	Movement->BrakingDecelerationWalking = LandingBrakingDecelerationWalking;
+	Movement->GroundFriction = LandingGroundFriction;
+	Movement->BrakingFrictionFactor = LandingBrakingFrictionFactor;
+
+	Owner->AddActionTagExternal(ActionGameplayTags::State_Action_LandingStartup);
+	Owner->RemoveActionTagExternal(ActionGameplayTags::State_Action_LandingRecovery);
+	Owner->SetMovementControlScales(LandingStartupMoveInputScale, LandingStartupMaxSpeedMultiplier);
+
+	if (UWorld* World = Owner->GetWorld())
+	{
+		if (LandingStartupDuration > 0.0f)
+		{
+			World->GetTimerManager().SetTimer(
+				LandingStartupTimerHandle,
+				this,
+				&UNormalJumpFeature::BeginLandingRecovery,
+				LandingStartupDuration,
+				false);
+		}
+		else
+		{
+			BeginLandingRecovery();
+		}
+	}
+}
+
+void UNormalJumpFeature::BeginLandingRecovery()
+{
+	AActionPlayerCharacter* Owner = OwnerChar.Get();
+	if (Owner == nullptr || Owner->IsDead())
+	{
+		RestoreMovementSettings();
+		return;
+	}
+
+	Owner->RemoveActionTagExternal(ActionGameplayTags::State_Action_LandingStartup);
+	Owner->AddActionTagExternal(ActionGameplayTags::State_Action_LandingRecovery);
+	Owner->SetMovementControlScales(LandingRecoveryMoveInputScale, LandingRecoveryMaxSpeedMultiplier);
+
+	if (UWorld* World = Owner->GetWorld())
+	{
+		if (LandingRecoveryDuration > 0.0f)
+		{
+			World->GetTimerManager().SetTimer(
+				LandingRecoveryTimerHandle,
+				this,
+				&UNormalJumpFeature::EndLandingRecovery,
+				LandingRecoveryDuration,
+				false);
+		}
+		else
+		{
+			EndLandingRecovery();
+		}
+	}
+}
+
+void UNormalJumpFeature::EndLandingRecovery()
+{
+	RestoreMovementSettings();
+}
+
+void UNormalJumpFeature::ClearLandingTimers()
+{
+	if (UWorld* World = GetWorld())
+	{
+		World->GetTimerManager().ClearTimer(LandingStartupTimerHandle);
+		World->GetTimerManager().ClearTimer(LandingRecoveryTimerHandle);
+	}
+}
+
+void UNormalJumpFeature::CacheMovementSettings(UCharacterMovementComponent& Movement)
+{
+	CachedGroundFriction = Movement.GroundFriction;
+	CachedBrakingDecelerationWalking = Movement.BrakingDecelerationWalking;
+	CachedBrakingFrictionFactor = Movement.BrakingFrictionFactor;
+	bCachedMovementSettingsValid = true;
+}
+
+void UNormalJumpFeature::RestoreMovementSettings()
+{
+	AActionPlayerCharacter* Owner = OwnerChar.Get();
+	if (Owner != nullptr)
+	{
+		if (UCharacterMovementComponent* Movement = Owner->GetCharacterMovement())
+		{
+			if (bCachedMovementSettingsValid)
+			{
+				Movement->GroundFriction = CachedGroundFriction;
+				Movement->BrakingDecelerationWalking = CachedBrakingDecelerationWalking;
+				Movement->BrakingFrictionFactor = CachedBrakingFrictionFactor;
+			}
+		}
+
+		Owner->RemoveActionTagExternal(ActionGameplayTags::State_Action_LandingStartup);
+		Owner->RemoveActionTagExternal(ActionGameplayTags::State_Action_LandingRecovery);
+		Owner->ClearMovementControlScales();
+	}
+
+	ClearLandingTimers();
+	bCachedMovementSettingsValid = false;
 }

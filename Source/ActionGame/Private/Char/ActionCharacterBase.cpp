@@ -153,6 +153,24 @@ bool AActionCharacterBase::IsDead() const
 	return bIsDead || HasActionTag(ActionGameplayTags::State_Action_Dead);
 }
 
+bool AActionCharacterBase::IsFriendlyTo(const AActionCharacterBase* Other) const
+{
+	if (Other == nullptr || Other == this)
+	{
+		return true;
+	}
+
+	return CombatTeam != EActionCombatTeam::Neutral
+		&& CombatTeam == Other->CombatTeam;
+}
+
+bool AActionCharacterBase::CanDamageTarget(const AActionCharacterBase* Other) const
+{
+	return Other != nullptr
+		&& Other != this
+		&& !IsFriendlyTo(Other);
+}
+
 void AActionCharacterBase::GetOwnedGameplayTags(FGameplayTagContainer& TagContainer) const
 {
 	TagContainer = ActionTags;

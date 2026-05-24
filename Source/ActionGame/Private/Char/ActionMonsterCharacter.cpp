@@ -1,7 +1,6 @@
 #include "Char/ActionMonsterCharacter.h"
 #include "AI/ActionMonsterAIController.h"
-#include "AI/ActionAIBlackboardKeys.h"
-#include "AI/Alert/AlertBroadcastSubsystem.h"
+#include "AI/Alert/AlertComponent.h"
 #include "AI/Noise/NoiseListenerComponent.h"
 #include "AIController.h"
 #include "Animation/AnimInstance.h"
@@ -30,6 +29,9 @@ AActionMonsterCharacter::AActionMonsterCharacter(const FObjectInitializer& Objec
 	// PlacedInWorldOrSpawned 表示无论是放在关卡里还是 Spawn 出来的怪都自动 Possess。
 	AIControllerClass = AActionMonsterAIController::StaticClass();
 	AutoPossessAI = EAutoPossessAI::PlacedInWorldOrSpawned;
+	CombatTeam = EActionCombatTeam::Monster;
+
+	AlertComponent = CreateDefaultSubobject<UAlertComponent>(TEXT("AlertComponent"));
 
 	// Sprint 4-B++ Day 5：挂上"耳朵"。BeginPlay 时会自动注册到 UAINoiseSubsystem。
 	// 任意继承 AActionMonsterCharacter 的怪默认就具备听觉，不需要每个 BP 手动加。
@@ -39,8 +41,6 @@ AActionMonsterCharacter::AActionMonsterCharacter(const FObjectInitializer& Objec
 void AActionMonsterCharacter::BeginPlay()
 {
 	Super::BeginPlay();
-
-	ApplyAlertStateMovementSettings();
 
 	// 绑 OnPlayMontageNotifyBegin 一次。等 AnimInstance 真的存在时才绑。
 	// 玩家走 UMontageActionFeature 同款机制，怪物没有 Feature 系统所以 Character 直接绑。
@@ -327,183 +327,6 @@ bool AActionMonsterCharacter::IsTargetInAttackRange(const AActor* Target) const
 		return false;
 	}
 	return GetDistance2DTo(Target) <= MonsterAttackRange;
-}
-
-void AActionMonsterCharacter::SetAlertState(EAIAlertState NewState)
-{
-	if (IsDead())
-	{
-		NewState = EAIAlertState::Idle;
-	}
-
-	if (AlertState == NewState)
-	{
-		ApplyAlertStateMovementSettings();
-		return;
-	}
-
-	// 抖动保护：升级方向（数值变大：Idle=0 → Alert=1 → Combat=2）允许立即生效；
-	// 降级方向必须等 AlertChangeCooldown 结束。避免视觉/听觉同帧拉扯产生肉眼可见的状态闪烁。
-	// 死亡是不可逆 Idle，跳过冷却。
-	const bool bIsUpgrade = static_cast<uint8>(NewState) > static_cast<uint8>(AlertState);
-	if (!bIsUpgrade && !IsDead() && AlertChangeCooldown > 0.0f)
-	{
-		const UWorld* World = GetWorld();
-		const float Now = World != nullptr ? World->GetTimeSeconds() : 0.0f;
-		const float Elapsed = Now - LastAlertStateChangeTime;
-		if (Elapsed < AlertChangeCooldown)
-		{
-			UE_LOG(
-				LogActionMonsterCharacter,
-				Verbose,
-				TEXT("ActionMonsterCharacter: SetAlertState downgrade %d -> %d suppressed (cooldown %.2fs remaining)."),
-				static_cast<uint8>(AlertState),
-				static_cast<uint8>(NewState),
-				AlertChangeCooldown - Elapsed);
-			return;
-		}
-	}
-
-	const EAIAlertState OldState = AlertState;
-	AlertState = NewState;
-	ApplyAlertStateMovementSettings();
-
-	if (const UWorld* World = GetWorld())
-	{
-		LastAlertStateChangeTime = World->GetTimeSeconds();
-	}
-
-	UE_LOG(
-		LogActionMonsterCharacter,
-		Log,
-		TEXT("ActionMonsterCharacter: AlertState changed %d -> %d. Owner=%s"),
-		static_cast<uint8>(OldState),
-		static_cast<uint8>(NewState),
-		*GetNameSafe(this));
-
-	OnAlertStateChanged.Broadcast(OldState, NewState);
-}
-
-void AActionMonsterCharacter::SetLastNoiseLocation(const FVector& InLocation)
-{
-	LastNoiseLocation = InLocation;
-
-	if (const UWorld* World = GetWorld())
-	{
-		LastNoiseTime = World->GetTimeSeconds();
-	}
-}
-
-bool AActionMonsterCharacter::TryBroadcastCombatAlert(AActor* Target)
-{
-	if (!bEnableAlertBroadcast || IsDead() || Target == nullptr || AlertBroadcastRadius <= 0.0f)
-	{
-		return false;
-	}
-
-	if (const AActionCharacterBase* TargetChar = Cast<AActionCharacterBase>(Target))
-	{
-		if (TargetChar->IsDead())
-		{
-			return false;
-		}
-	}
-
-	UWorld* World = GetWorld();
-	if (World == nullptr)
-	{
-		return false;
-	}
-
-	const float Now = World->GetTimeSeconds();
-	if (AlertBroadcastCooldown > 0.0f && Now - LastAlertBroadcastTime < AlertBroadcastCooldown)
-	{
-		UE_LOG(
-			LogActionMonsterCharacter,
-			Verbose,
-			TEXT("ActionMonsterCharacter: Alert broadcast suppressed by cooldown %.2fs. Owner=%s"),
-			AlertBroadcastCooldown - (Now - LastAlertBroadcastTime),
-			*GetNameSafe(this));
-		return false;
-	}
-
-	UAlertBroadcastSubsystem* AlertSubsystem = UAlertBroadcastSubsystem::Get(this);
-	if (AlertSubsystem == nullptr)
-	{
-		return false;
-	}
-
-	LastAlertBroadcastTime = Now;
-	const int32 ReceiverCount = AlertSubsystem->BroadcastAlert(this, Target, AlertBroadcastRadius);
-	return ReceiverCount > 0;
-}
-
-bool AActionMonsterCharacter::ReceiveCombatAlert(AActor* Target, AActionMonsterCharacter* Source)
-{
-	if (Target == nullptr || Source == nullptr || Source == this || IsDead())
-	{
-		return false;
-	}
-
-	if (AlertState == EAIAlertState::Combat)
-	{
-		return false;
-	}
-
-	if (const AActionCharacterBase* TargetChar = Cast<AActionCharacterBase>(Target))
-	{
-		if (TargetChar->IsDead())
-		{
-			return false;
-		}
-	}
-
-	AAIController* AIController = Cast<AAIController>(GetController());
-	UBlackboardComponent* Blackboard = AIController != nullptr ? AIController->GetBlackboardComponent() : nullptr;
-	if (Blackboard != nullptr)
-	{
-		Blackboard->SetValueAsObject(ActionAIBlackboardKeys::TargetActor, Target);
-		Blackboard->SetValueAsVector(ActionAIBlackboardKeys::TargetLocation, Target->GetActorLocation());
-		Blackboard->SetValueAsBool(ActionAIBlackboardKeys::IsInAttackRange, IsTargetInAttackRange(Target));
-	}
-
-	SetAlertState(EAIAlertState::Combat);
-
-	UE_LOG(
-		LogActionMonsterCharacter,
-		Log,
-		TEXT("ActionMonsterCharacter: Received combat alert. Owner=%s Source=%s Target=%s"),
-		*GetNameSafe(this),
-		*GetNameSafe(Source),
-		*GetNameSafe(Target));
-
-	return true;
-}
-
-void AActionMonsterCharacter::ApplyAlertStateMovementSettings()
-{
-	UCharacterMovementComponent* Movement = GetCharacterMovement();
-	if (Movement == nullptr || IsDead())
-	{
-		return;
-	}
-
-	float TargetSpeed = IdleMaxWalkSpeed;
-	switch (AlertState)
-	{
-	case EAIAlertState::Alert:
-		TargetSpeed = AlertMaxWalkSpeed;
-		break;
-	case EAIAlertState::Combat:
-		TargetSpeed = CombatMaxWalkSpeed;
-		break;
-	case EAIAlertState::Idle:
-	default:
-		TargetSpeed = IdleMaxWalkSpeed;
-		break;
-	}
-
-	Movement->MaxWalkSpeed = TargetSpeed;
 }
 
 // ============================================================================

@@ -1,5 +1,6 @@
 #include "AI/Noise/NoiseListenerComponent.h"
 
+#include "AI/Alert/AlertComponent.h"
 #include "AI/Noise/AINoiseSubsystem.h"
 #include "Char/ActionMonsterCharacter.h"
 #include "Common/ActionGameplayTags.h"
@@ -90,6 +91,7 @@ bool UNoiseListenerComponent::ShouldRespondTo(const FActionAINoiseEvent& Event) 
 	// 怪物专属过滤：死亡 / 被 AI 控制阻塞 / 已 Combat 状态。
 	if (const AActionMonsterCharacter* Monster = Cast<AActionMonsterCharacter>(Owner))
 	{
+		const UAlertComponent* AlertComponent = Monster->GetAlertComponent();
 		if (Monster->IsDead())
 		{
 			return false;
@@ -98,7 +100,7 @@ bool UNoiseListenerComponent::ShouldRespondTo(const FActionAINoiseEvent& Event) 
 		{
 			return false;
 		}
-		if (!bRespondWhenCombat && Monster->GetAlertState() == EAIAlertState::Combat)
+		if (!bRespondWhenCombat && AlertComponent != nullptr && AlertComponent->GetAlertState() == EAIAlertState::Combat)
 		{
 			return false;
 		}
@@ -115,12 +117,18 @@ void UNoiseListenerComponent::ApplyDefaultResponse(const FActionAINoiseEvent& Ev
 		return;
 	}
 
-	Monster->SetLastNoiseLocation(Event.Location);
+	UAlertComponent* AlertComponent = Monster->GetAlertComponent();
+	if (AlertComponent == nullptr)
+	{
+		return;
+	}
+
+	AlertComponent->SetLastNoiseLocation(Event.Location);
 
 	if (bAutoPromoteAlertState)
 	{
 		// SetAlertState 内部带抖动保护：Combat → Alert 这种降级请求会被它根据冷却规则决定要不要立刻接受。
-		Monster->SetAlertState(EAIAlertState::Alert);
+		AlertComponent->SetAlertState(EAIAlertState::Alert);
 	}
 
 	UE_LOG(

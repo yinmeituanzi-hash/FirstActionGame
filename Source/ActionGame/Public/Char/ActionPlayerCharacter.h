@@ -164,6 +164,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|Animation")
 	EActionMovementGait GetCurrentGait() const { return CurrentGait; }
 
+	void SetMovementControlScales(float InMoveInputScale, float InMaxSpeedMultiplier);
+	void ClearMovementControlScales();
+	void RefreshMovementSettings();
+
 	UFUNCTION(BlueprintPure, Category = "Action|AI|Hearing")
 	float GetAttackNoiseLoudness() const { return AttackNoiseLoudness; }
 
@@ -345,6 +349,9 @@ protected:
 
 	/** 根据 bSprintInputHeld + 锁定状态重算 CurrentGait 并应用到 CharacterMovement。 */
 	void UpdateCurrentGait();
+
+	float MoveInputScale = 1.0f;
+	float MaxSpeedMultiplier = 1.0f;
 
 	/** LockOn 目标变化时回调（绑定到 ULockOnComponent::OnLockOnTargetChanged）。 */
 	UFUNCTION()

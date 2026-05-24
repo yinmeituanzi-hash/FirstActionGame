@@ -1,8 +1,8 @@
 #include "AI/Alert/AlertBroadcastSubsystem.h"
 
+#include "AI/Alert/AlertComponent.h"
 #include "Char/ActionMonsterCharacter.h"
 #include "DrawDebugHelpers.h"
-#include "EngineUtils.h"
 #include "Engine/World.h"
 #include "HAL/IConsoleManager.h"
 
@@ -36,9 +36,31 @@ UAlertBroadcastSubsystem* UAlertBroadcastSubsystem::Get(const UObject* WorldCont
 	return World->GetSubsystem<UAlertBroadcastSubsystem>();
 }
 
-int32 UAlertBroadcastSubsystem::BroadcastAlert(AActionMonsterCharacter* Source, AActor* Target, float Radius)
+void UAlertBroadcastSubsystem::RegisterAlertComponent(UAlertComponent* AlertComponent)
+{
+	if (AlertComponent != nullptr)
+	{
+		RegisteredAlertComponents.Add(AlertComponent);
+	}
+}
+
+void UAlertBroadcastSubsystem::UnregisterAlertComponent(UAlertComponent* AlertComponent)
+{
+	if (AlertComponent != nullptr)
+	{
+		RegisteredAlertComponents.Remove(AlertComponent);
+	}
+}
+
+int32 UAlertBroadcastSubsystem::BroadcastAlert(UAlertComponent* Source, AActor* Target, float Radius)
 {
 	if (Source == nullptr || Target == nullptr || Radius <= 0.0f)
+	{
+		return 0;
+	}
+
+	AActionMonsterCharacter* SourceMonster = Source->GetOwnerMonster();
+	if (SourceMonster == nullptr)
 	{
 		return 0;
 	}
@@ -49,7 +71,7 @@ int32 UAlertBroadcastSubsystem::BroadcastAlert(AActionMonsterCharacter* Source, 
 		return 0;
 	}
 
-	const FVector SourceLocation = Source->GetActorLocation();
+	const FVector SourceLocation = SourceMonster->GetActorLocation();
 	const float RadiusSq = FMath::Square(Radius);
 	int32 ReceiverCount = 0;
 
@@ -58,15 +80,27 @@ int32 UAlertBroadcastSubsystem::BroadcastAlert(AActionMonsterCharacter* Source, 
 		DrawDebugSphere(World, SourceLocation, Radius, 32, FColor::Cyan, false, 1.0f, 0, 2.0f);
 	}
 
-	for (TActorIterator<AActionMonsterCharacter> It(World); It; ++It)
+	for (auto It = RegisteredAlertComponents.CreateIterator(); It; ++It)
 	{
-		AActionMonsterCharacter* Candidate = *It;
-		if (Candidate == nullptr || Candidate == Source || !IsValid(Candidate) || Candidate->IsDead())
+		UAlertComponent* Candidate = It->Get();
+		if (Candidate == nullptr || !IsValid(Candidate))
+		{
+			It.RemoveCurrent();
+			continue;
+		}
+
+		if (Candidate == Source)
 		{
 			continue;
 		}
 
-		if (FVector::DistSquared(Candidate->GetActorLocation(), SourceLocation) > RadiusSq)
+		AActionMonsterCharacter* CandidateMonster = Candidate->GetOwnerMonster();
+		if (CandidateMonster == nullptr || !IsValid(CandidateMonster) || CandidateMonster->IsDead())
+		{
+			continue;
+		}
+
+		if (FVector::DistSquared(CandidateMonster->GetActorLocation(), SourceLocation) > RadiusSq)
 		{
 			continue;
 		}
@@ -76,7 +110,7 @@ int32 UAlertBroadcastSubsystem::BroadcastAlert(AActionMonsterCharacter* Source, 
 			++ReceiverCount;
 			if (GDebugDrawAlertBroadcast > 0)
 			{
-				DrawDebugLine(World, SourceLocation, Candidate->GetActorLocation(), FColor::Cyan, false, 1.0f, 0, 1.5f);
+				DrawDebugLine(World, SourceLocation, CandidateMonster->GetActorLocation(), FColor::Cyan, false, 1.0f, 0, 1.5f);
 			}
 		}
 	}
@@ -85,7 +119,7 @@ int32 UAlertBroadcastSubsystem::BroadcastAlert(AActionMonsterCharacter* Source, 
 		LogAlertBroadcast,
 		Log,
 		TEXT("AlertBroadcast: Source=%s Target=%s Radius=%.0f Receivers=%d"),
-		*GetNameSafe(Source),
+		*GetNameSafe(SourceMonster),
 		*GetNameSafe(Target),
 		Radius,
 		ReceiverCount);

@@ -48,10 +48,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "Combat Test")
 	bool bAutoStartCombat = true;
 
-	/** 初始生成怪物数量。 */
-	UPROPERTY(EditDefaultsOnly, Category = "Combat Test", meta = (ClampMin = "0"))
-	int32 InitialMonsterCount = 1;
-
 	/** 当前测试战斗使用的怪物类。 */
 	UPROPERTY(EditDefaultsOnly, Category = "Combat Test")
 	TSubclassOf<AActionMonsterCharacter> MonsterCharacterClass;

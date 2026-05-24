@@ -22,6 +22,14 @@ enum class EActionCharacterState : uint8
 	Dead UMETA(DisplayName = "Dead")
 };
 
+UENUM(BlueprintType)
+enum class EActionCombatTeam : uint8
+{
+	Neutral UMETA(DisplayName = "Neutral"),
+	Player UMETA(DisplayName = "Player"),
+	Monster UMETA(DisplayName = "Monster")
+};
+
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FActionStateChangedSignature, EActionCharacterState, OldState, EActionCharacterState, NewState);
 
 /**
@@ -61,6 +69,10 @@ protected:
 	/** 基础攻击力。Day 2 先只作为占位数值，后面接入伤害流程时会真正使用。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Attributes")
 	float AttackPower = 10.0f;
+
+	/** 最小阵营标记。Neutral 可以被任何非自身攻击；同阵营之间默认不互伤。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|Team")
+	EActionCombatTeam CombatTeam = EActionCombatTeam::Neutral;
 
 	/** 是否已经死亡。先用一个简单布尔值建立最小状态闭环。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|State")
@@ -112,6 +124,15 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Action|Attributes")
 	float GetAttackPower() const { return AttackPower; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|Combat|Team")
+	EActionCombatTeam GetCombatTeam() const { return CombatTeam; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|Combat|Team")
+	bool IsFriendlyTo(const AActionCharacterBase* Other) const;
+
+	UFUNCTION(BlueprintPure, Category = "Action|Combat|Team")
+	bool CanDamageTarget(const AActionCharacterBase* Other) const;
 
 	UFUNCTION(BlueprintPure, Category = "Action|State")
 	bool IsDead() const;

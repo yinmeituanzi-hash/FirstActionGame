@@ -8,6 +8,8 @@ namespace ActionGameplayTags
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Action_Dodging);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Action_HitReact);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Action_Dead);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Action_LandingStartup);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Action_LandingRecovery);
 
 	/** 霸体：拥有此 Tag 时受击不会触发 HitReact 动画，但伤害和反馈仍正常结算。 */
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_SuperArmor);

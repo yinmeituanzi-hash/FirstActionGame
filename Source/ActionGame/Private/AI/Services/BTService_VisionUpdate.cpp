@@ -75,6 +75,15 @@ void UBTService_VisionUpdate::TickNode(UBehaviorTreeComponent& OwnerComp, uint8*
 	Memory->TimeSinceLastSeen += DeltaSeconds;
 	if (Memory->TimeSinceLastSeen >= LostTargetGraceTime)
 	{
+		AActor* HatredTarget = Monster->GetHighestHatredTarget();
+		if (HatredTarget != nullptr)
+		{
+			Blackboard->SetValueAsObject(TargetActorKey.SelectedKeyName, HatredTarget);
+			Blackboard->SetValueAsVector(TargetLocationKey.SelectedKeyName, HatredTarget->GetActorLocation());
+			Blackboard->SetValueAsBool(IsInAttackRangeKey.SelectedKeyName, Monster->IsTargetInAttackRange(HatredTarget));
+			return;
+		}
+
 		ClearTarget(*Blackboard);
 	}
 	else

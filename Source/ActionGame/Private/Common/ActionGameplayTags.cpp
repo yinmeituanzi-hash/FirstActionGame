@@ -6,6 +6,8 @@ namespace ActionGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG(State_Action_Dodging, "State.Action.Dodging");
 	UE_DEFINE_GAMEPLAY_TAG(State_Action_HitReact, "State.Action.HitReact");
 	UE_DEFINE_GAMEPLAY_TAG(State_Action_Dead, "State.Action.Dead");
+	UE_DEFINE_GAMEPLAY_TAG(State_Action_LandingStartup, "State.Action.Landing.Startup");
+	UE_DEFINE_GAMEPLAY_TAG(State_Action_LandingRecovery, "State.Action.Landing.Recovery");
 
 	UE_DEFINE_GAMEPLAY_TAG(State_SuperArmor, "State.SuperArmor");
 	UE_DEFINE_GAMEPLAY_TAG(State_Ragdoll, "State.Ragdoll");

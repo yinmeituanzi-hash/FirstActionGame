@@ -63,6 +63,41 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|Config")
 	bool bOverrideXYVelocityOnJump = false;
 
+	// ---------- Landing recovery ----------
+
+	/** Landing 的不可控前段。输入会被压到 0，但只持续极短时间，避免整段落地动画僵硬锁死。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|Landing", meta = (ClampMin = "0.0"))
+	float LandingStartupDuration = 0.10f;
+
+	/** Landing 的可控恢复段。允许移动，但输入和最高速度会被临时压低。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|Landing", meta = (ClampMin = "0.0"))
+	float LandingRecoveryDuration = 0.25f;
+
+	/** 落地瞬间保留多少水平速度。动作战斗通常低一些，避免脚落地后继续滑。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|Landing", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LandingHorizontalVelocityScale = 0.25f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|Landing", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LandingStartupMoveInputScale = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|Landing", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LandingStartupMaxSpeedMultiplier = 0.15f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|Landing", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LandingRecoveryMoveInputScale = 0.65f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|Landing", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float LandingRecoveryMaxSpeedMultiplier = 0.55f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|Landing", meta = (ClampMin = "0.0"))
+	float LandingBrakingDecelerationWalking = 6000.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|Landing", meta = (ClampMin = "0.0"))
+	float LandingGroundFriction = 12.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Jump|Landing", meta = (ClampMin = "0.0"))
+	float LandingBrakingFrictionFactor = 2.0f;
+
 	// ---------- 状态 ----------
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Jump|State")
@@ -92,4 +127,18 @@ public:
 
 private:
 	void DoSingleJump(ENormalJumpState NewState);
+	void StartLandingStartup();
+	void BeginLandingRecovery();
+	void EndLandingRecovery();
+	void ClearLandingTimers();
+	void CacheMovementSettings(class UCharacterMovementComponent& Movement);
+	void RestoreMovementSettings();
+
+	FTimerHandle LandingStartupTimerHandle;
+	FTimerHandle LandingRecoveryTimerHandle;
+
+	bool bCachedMovementSettingsValid = false;
+	float CachedGroundFriction = 0.0f;
+	float CachedBrakingDecelerationWalking = 0.0f;
+	float CachedBrakingFrictionFactor = 0.0f;
 };

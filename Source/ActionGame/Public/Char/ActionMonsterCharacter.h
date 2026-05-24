@@ -1,7 +1,6 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AI/ActionAITypes.h"
 #include "Char/ActionCharacterBase.h"
 #include "Combat/LockOn/ActionLockableInterface.h"
 #include "Combat/HitReact/HitReactTypes.h"
@@ -9,6 +8,7 @@
 
 class UAnimInstance;
 class UAnimMontage;
+class UAlertComponent;
 class UNoiseListenerComponent;
 struct FBranchingPointNotifyPayload;
 struct FTimerHandle;
@@ -64,38 +64,10 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|AI")
 	float GetMonsterAttackRange() const { return MonsterAttackRange; }
 
-	// ---------- Sprint 4-B+ Day 4: Alert State ----------
-
-	UPROPERTY(BlueprintAssignable, Category = "Action|AI|Alert")
-	FAIAlertStateChangedSignature OnAlertStateChanged;
+	// ---------- Sprint 4-B+ / 4-C+++: Alert Component ----------
 
 	UFUNCTION(BlueprintPure, Category = "Action|AI|Alert")
-	EAIAlertState GetAlertState() const { return AlertState; }
-
-	UFUNCTION(BlueprintCallable, Category = "Action|AI|Alert")
-	void SetAlertState(EAIAlertState NewState);
-
-	UFUNCTION(BlueprintPure, Category = "Action|AI|Alert")
-	FVector GetLastNoiseLocation() const { return LastNoiseLocation; }
-
-	UFUNCTION(BlueprintCallable, Category = "Action|AI|Alert")
-	void SetLastNoiseLocation(const FVector& InLocation);
-
-	UFUNCTION(BlueprintPure, Category = "Action|AI|Alert")
-	float GetLastNoiseTime() const { return LastNoiseTime; }
-
-	// ---------- Sprint 4-C+++ Day 8: 报警广播 ----------
-
-	UFUNCTION(BlueprintPure, Category = "Action|AI|AlertBroadcast")
-	float GetAlertBroadcastRadius() const { return AlertBroadcastRadius; }
-
-	/** 当前怪确认目标进入 Combat 时调用。内部带冷却，成功后通知周围怪物。 */
-	UFUNCTION(BlueprintCallable, Category = "Action|AI|AlertBroadcast")
-	bool TryBroadcastCombatAlert(AActor* Target);
-
-	/** 收到其他怪物报警。返回 true 表示本怪实际接受了报警并进入 Combat。 */
-	UFUNCTION(BlueprintCallable, Category = "Action|AI|AlertBroadcast")
-	bool ReceiveCombatAlert(AActor* Target, AActionMonsterCharacter* Source);
+	UAlertComponent* GetAlertComponent() const { return AlertComponent; }
 
 	// ---------- Sprint 4-C+ Day 6: 简化仇恨列表 ----------
 	//
@@ -145,52 +117,9 @@ private:
 	bool bIsBeingLockedOn = false;
 
 protected:
-	/** 当前 AI 警戒状态。由 BTService_AlertStateTick / 后续听觉系统驱动。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert")
-	EAIAlertState AlertState = EAIAlertState::Idle;
-
-	/** 最近一次可疑位置。Day 4 先用最后看到玩家的位置；Day 5 听觉会写声音位置。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert")
-	FVector LastNoiseLocation = FVector::ZeroVector;
-
-	/** 最近一次写入可疑位置的世界时间。 */
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert")
-	float LastNoiseTime = -1000.0f;
-
-	/** Idle/Patrol 状态最高移速，配合 ABP 播慢速巡逻。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert|Movement", meta = (ClampMin = "0.0"))
-	float IdleMaxWalkSpeed = 100.0f;
-
-	/** Alert 状态最高移速，配合 ABP 播谨慎调查移动。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert|Movement", meta = (ClampMin = "0.0"))
-	float AlertMaxWalkSpeed = 200.0f;
-
-	/** Combat 状态最高移速，配合 ABP 播战斗追击移动。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert|Movement", meta = (ClampMin = "0.0"))
-	float CombatMaxWalkSpeed = 400.0f;
-
-	/**
-	 * AlertState 切换防抖冷却（秒）。
-	 *  - 升级（Idle → Alert → Combat）：永远允许立刻应用。
-	 *  - 降级（Combat → Alert → Idle）：必须等冷却结束才能应用。
-	 * 防止"视觉刚拉到 Combat 又被听觉降回 Alert"这类肉眼可见的状态闪烁。
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert", meta = (ClampMin = "0.0"))
-	float AlertChangeCooldown = 1.0f;
-
-	// ---------- Day 8: 报警广播 ----------
-
-	/** 非 Combat -> Combat 时是否向附近怪物广播确认目标。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|AlertBroadcast")
-	bool bEnableAlertBroadcast = true;
-
-	/** 报警半径（cm）。范围内的其他怪物会收到 Combat 目标。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|AlertBroadcast", meta = (ClampMin = "0.0"))
-	float AlertBroadcastRadius = 1500.0f;
-
-	/** 单只怪物报警冷却，避免反复进出 Combat 时刷广播。 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|AlertBroadcast", meta = (ClampMin = "0.0"))
-	float AlertBroadcastCooldown = 5.0f;
+	/** 拥有警戒状态、可疑位置、状态移动速度以及战斗播报响应 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UAlertComponent> AlertComponent;
 
 	// ---------- Day 5: 听觉感知 ----------
 
@@ -257,12 +186,6 @@ protected:
 	bool bDrawDebugHitSphere = true;
 
 private:
-	/** 上一次 AlertState 实际改变的世界时间（防抖用）。 */
-	float LastAlertStateChangeTime = -1000.0f;
-
-	/** 上一次发出报警广播的世界时间。 */
-	float LastAlertBroadcastTime = -1000.0f;
-
 	/**
 	 * 仇恨表：Attacker → 累计伤害。
 	 * 不加 UPROPERTY：TMap<TWeakObjectPtr, float> 反射支持有限；GC 由 TWeakObjectPtr 自身处理，
@@ -325,6 +248,4 @@ protected:
 	/** 将当前死亡姿势冻结住，直到 Actor 销毁。 */
 	void FreezeDeathPose();
 
-private:
-	void ApplyAlertStateMovementSettings();
 };

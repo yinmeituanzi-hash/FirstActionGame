@@ -2,6 +2,7 @@
 
 #include "AI/ActionAIBlackboardKeys.h"
 #include "AI/ActionAITypes.h"
+#include "AI/Alert/AlertComponent.h"
 #include "AIController.h"
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
@@ -48,9 +49,10 @@ void UBTService_AlertStateTick::OnBecomeRelevant(UBehaviorTreeComponent& OwnerCo
 	UBlackboardComponent* Blackboard = OwnerComp.GetBlackboardComponent();
 	AAIController* AIOwner = OwnerComp.GetAIOwner();
 	AActionMonsterCharacter* Monster = AIOwner != nullptr ? Cast<AActionMonsterCharacter>(AIOwner->GetCharacter()) : nullptr;
-	if (Blackboard != nullptr && Monster != nullptr)
+	UAlertComponent* AlertComponent = Monster != nullptr ? Monster->GetAlertComponent() : nullptr;
+	if (Blackboard != nullptr && AlertComponent != nullptr)
 	{
-		SyncBlackboardState(*Blackboard, Monster->GetAlertState());
+		SyncBlackboardState(*Blackboard, AlertComponent->GetAlertState());
 	}
 }
 
@@ -62,7 +64,8 @@ void UBTService_AlertStateTick::TickNode(UBehaviorTreeComponent& OwnerComp, uint
 	UBlackboardComponent* Blackboard = OwnerComp.GetBlackboardComponent();
 	AAIController* AIOwner = OwnerComp.GetAIOwner();
 	AActionMonsterCharacter* Monster = AIOwner != nullptr ? Cast<AActionMonsterCharacter>(AIOwner->GetCharacter()) : nullptr;
-	if (Blackboard == nullptr || Monster == nullptr || Monster->IsDead())
+	UAlertComponent* AlertComponent = Monster != nullptr ? Monster->GetAlertComponent() : nullptr;
+	if (Blackboard == nullptr || Monster == nullptr || AlertComponent == nullptr || Monster->IsDead())
 	{
 		return;
 	}
@@ -80,12 +83,12 @@ void UBTService_AlertStateTick::TickNode(UBehaviorTreeComponent& OwnerComp, uint
 
 	// 听觉事件发生在 BT 外部：NoiseListener 会先写到 Monster 的运行时字段。
 	// 这里集中同步到 Blackboard，让 Alert 分支的 MoveTo(LastNoiseLocation) 有真实目标点。
-	if (Monster->GetLastNoiseTime() > -999.0f)
+	if (AlertComponent->GetLastNoiseTime() > -999.0f)
 	{
-		Blackboard->SetValueAsVector(LastNoiseLocationKey.SelectedKeyName, Monster->GetLastNoiseLocation());
+		Blackboard->SetValueAsVector(LastNoiseLocationKey.SelectedKeyName, AlertComponent->GetLastNoiseLocation());
 	}
 
-	const EAIAlertState PreviousState = Monster->GetAlertState();
+	const EAIAlertState PreviousState = AlertComponent->GetAlertState();
 	if (Memory->LastObservedState != static_cast<uint8>(PreviousState))
 	{
 		Memory->AlertElapsedTime = 0.0f;
@@ -97,10 +100,10 @@ void UBTService_AlertStateTick::TickNode(UBehaviorTreeComponent& OwnerComp, uint
 	if (TargetActor != nullptr && !TargetActor->IsPendingKillPending())
 	{
 		const bool bEnteredCombat = PreviousState != EAIAlertState::Combat;
-		Monster->SetAlertState(EAIAlertState::Combat);
+		AlertComponent->SetAlertState(EAIAlertState::Combat);
 		if (bEnteredCombat)
 		{
-			Monster->TryBroadcastCombatAlert(TargetActor);
+			AlertComponent->TryBroadcastCombatAlert(TargetActor);
 		}
 		Memory->AlertElapsedTime = 0.0f;
 		Memory->LastObservedState = static_cast<uint8>(EAIAlertState::Combat);
@@ -115,9 +118,9 @@ void UBTService_AlertStateTick::TickNode(UBehaviorTreeComponent& OwnerComp, uint
 			? Monster->GetActorLocation()
 			: LastKnownTargetLocation;
 
-		Monster->SetLastNoiseLocation(SuspiciousLocation);
+		AlertComponent->SetLastNoiseLocation(SuspiciousLocation);
 		Blackboard->SetValueAsVector(LastNoiseLocationKey.SelectedKeyName, SuspiciousLocation);
-		Monster->SetAlertState(EAIAlertState::Alert);
+		AlertComponent->SetAlertState(EAIAlertState::Alert);
 		Memory->AlertElapsedTime = 0.0f;
 		Memory->LastObservedState = static_cast<uint8>(EAIAlertState::Alert);
 		SyncBlackboardState(*Blackboard, EAIAlertState::Alert);
@@ -129,7 +132,7 @@ void UBTService_AlertStateTick::TickNode(UBehaviorTreeComponent& OwnerComp, uint
 		Memory->AlertElapsedTime += DeltaSeconds;
 		if (Memory->AlertElapsedTime >= AlertTimeout)
 		{
-			Monster->SetAlertState(EAIAlertState::Idle);
+			AlertComponent->SetAlertState(EAIAlertState::Idle);
 			Memory->AlertElapsedTime = 0.0f;
 			Memory->LastObservedState = static_cast<uint8>(EAIAlertState::Idle);
 		}
@@ -139,7 +142,7 @@ void UBTService_AlertStateTick::TickNode(UBehaviorTreeComponent& OwnerComp, uint
 		Memory->AlertElapsedTime = 0.0f;
 	}
 
-	SyncBlackboardState(*Blackboard, Monster->GetAlertState());
+	SyncBlackboardState(*Blackboard, AlertComponent->GetAlertState());
 }
 
 uint16 UBTService_AlertStateTick::GetInstanceMemorySize() const

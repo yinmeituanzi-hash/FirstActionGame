@@ -76,6 +76,14 @@ int32 UActionCombatLibrary::PerformSphereAttackHit(
 			continue;
 		}
 
+		if (const AActionCharacterBase* AttackerChar = Cast<AActionCharacterBase>(Attacker))
+		{
+			if (!AttackerChar->CanDamageTarget(Victim))
+			{
+				continue;
+			}
+		}
+
 		const TWeakObjectPtr<AActor> WeakActor(Actor);
 		if (InOutHitActors.Contains(WeakActor))
 		{
