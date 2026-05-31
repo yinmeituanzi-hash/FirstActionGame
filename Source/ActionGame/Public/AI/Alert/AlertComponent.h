@@ -80,7 +80,7 @@ private:
 	bool bEnableAlertBroadcast = true;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|AlertBroadcast", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
-	float AlertBroadcastRadius = 1500.0f;
+	float AlertBroadcastRadius = 1000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|AlertBroadcast", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
 	float AlertBroadcastCooldown = 5.0f;

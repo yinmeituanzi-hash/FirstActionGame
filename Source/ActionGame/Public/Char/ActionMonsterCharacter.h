@@ -9,6 +9,7 @@
 class UAnimInstance;
 class UAnimMontage;
 class UAlertComponent;
+class UAISignificanceComponent;
 class UNoiseListenerComponent;
 struct FBranchingPointNotifyPayload;
 struct FTimerHandle;
@@ -69,6 +70,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|AI|Alert")
 	UAlertComponent* GetAlertComponent() const { return AlertComponent; }
 
+	UFUNCTION(BlueprintPure, Category = "Action|AI|Significance")
+	UAISignificanceComponent* GetSignificanceComponent() const { return SignificanceComponent; }
+
 	// ---------- Sprint 4-C+ Day 6: 简化仇恨列表 ----------
 	//
 	// 最简版仇恨：只记录"攻击者 → 累计伤害"，不做衰减、不区分仇恨来源。
@@ -120,6 +124,10 @@ protected:
 	/** 拥有警戒状态、可疑位置、状态移动速度以及战斗播报响应 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAlertComponent> AlertComponent;
+
+	/** 怪物重要度 / TickLOD 组件。Character 只持有组件，具体降级策略归组件自身维护。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|AI|Significance", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UAISignificanceComponent> SignificanceComponent;
 
 	// ---------- Day 5: 听觉感知 ----------
 

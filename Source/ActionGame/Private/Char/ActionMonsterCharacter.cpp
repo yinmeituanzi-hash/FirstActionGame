@@ -2,6 +2,7 @@
 #include "AI/ActionMonsterAIController.h"
 #include "AI/Alert/AlertComponent.h"
 #include "AI/Noise/NoiseListenerComponent.h"
+#include "AI/Significance/AISignificanceComponent.h"
 #include "AIController.h"
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
@@ -32,6 +33,7 @@ AActionMonsterCharacter::AActionMonsterCharacter(const FObjectInitializer& Objec
 	CombatTeam = EActionCombatTeam::Monster;
 
 	AlertComponent = CreateDefaultSubobject<UAlertComponent>(TEXT("AlertComponent"));
+	SignificanceComponent = CreateDefaultSubobject<UAISignificanceComponent>(TEXT("SignificanceComponent"));
 
 	// Sprint 4-B++ Day 5：挂上"耳朵"。BeginPlay 时会自动注册到 UAINoiseSubsystem。
 	// 任意继承 AActionMonsterCharacter 的怪默认就具备听觉，不需要每个 BP 手动加。
