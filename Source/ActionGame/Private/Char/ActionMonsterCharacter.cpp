@@ -1,6 +1,7 @@
 #include "Char/ActionMonsterCharacter.h"
 #include "AI/ActionMonsterAIController.h"
 #include "AI/Alert/AlertComponent.h"
+#include "AI/Budget/AIBudgetComponent.h"
 #include "AI/Noise/NoiseListenerComponent.h"
 #include "AI/Significance/AISignificanceComponent.h"
 #include "AIController.h"
@@ -34,6 +35,7 @@ AActionMonsterCharacter::AActionMonsterCharacter(const FObjectInitializer& Objec
 
 	AlertComponent = CreateDefaultSubobject<UAlertComponent>(TEXT("AlertComponent"));
 	SignificanceComponent = CreateDefaultSubobject<UAISignificanceComponent>(TEXT("SignificanceComponent"));
+	BudgetComponent = CreateDefaultSubobject<UAIBudgetComponent>(TEXT("BudgetComponent"));
 
 	// Sprint 4-B++ Day 5：挂上"耳朵"。BeginPlay 时会自动注册到 UAINoiseSubsystem。
 	// 任意继承 AActionMonsterCharacter 的怪默认就具备听觉，不需要每个 BP 手动加。
@@ -91,6 +93,13 @@ void AActionMonsterCharacter::Die()
 	if (IsDead())
 	{
 		return;
+	}
+
+	// DeathMontage 需要 Mesh Tick。若该怪上一轮被 Budget 冻结，先立即释放限制，
+	// 再进入死亡流程；否则范围伤害击杀远处怪时会停在旧姿势。
+	if (BudgetComponent != nullptr)
+	{
+		BudgetComponent->ApplyBudgetEnabled(true, EAIBudgetAllocationReason::Protected, true);
 	}
 
 	Super::Die();

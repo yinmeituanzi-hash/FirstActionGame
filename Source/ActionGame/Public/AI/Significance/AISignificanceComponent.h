@@ -42,9 +42,9 @@ public:
 	bool IsBehaviorTreeAllowedBySignificance() const { return !bSignificanceBTDisabled; }
 
 	UFUNCTION(BlueprintPure, Category = "Action|AI|Significance")
-	bool IsBehaviorTreeAllowedByBudget() const { return !bBudgetBTDisabled; }
+	bool IsBehaviorTreeAllowedByBudget() const { return !bBudgetDisabled; }
 
-	/** Day10 Budget 会调用这里。Day9 先保持 true，但接口提前稳定下来。 */
+	/** Day10 Budget 调用这里。最终 Tick 状态由 Significance 配置和 Budget 开关共同决定。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|AI|Significance")
 	void ApplyBudgetEnabled(bool bEnabled);
 
@@ -128,7 +128,7 @@ private:
 	FAISignificanceLevelConfig DormantConfig;
 
 	bool bSignificanceBTDisabled = false;
-	bool bBudgetBTDisabled = false;
+	bool bBudgetDisabled = false;
 
 	bool bDefaultsCaptured = false;
 	bool bDefaultControllerTickEnabled = true;
@@ -154,9 +154,10 @@ private:
 	EAISignificanceLevel EnforceAlertStateFloor(EAISignificanceLevel InLevel) const;
 	void ApplyLevel(EAISignificanceLevel NewLevel);
 	void ApplyChannels(const FAISignificanceLevelConfig& Config);
-	void ApplyBehaviorTreeTick(const FAISignificanceLevelConfig& Config);
+	void ApplyBehaviorTreeTick(const FAISignificanceLevelConfig& Config, bool bBudgetAllowsChannels);
 	const FAISignificanceLevelConfig& GetConfigForLevel(EAISignificanceLevel Level) const;
 	bool IsAIControlBlocked() const;
+	bool IsBudgetSuppressionBlockedByCriticalState() const;
 	bool ShouldDebugDraw() const;
 	void DrawDebugInfo() const;
 };

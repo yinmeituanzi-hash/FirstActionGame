@@ -125,7 +125,7 @@ void UAISignificanceComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
 
 void UAISignificanceComponent::ApplyBudgetEnabled(bool bEnabled)
 {
-	bBudgetBTDisabled = !bEnabled;
+	bBudgetDisabled = !bEnabled;
 	ApplyLevel(CurrentLevel);
 }
 
@@ -366,34 +366,41 @@ void UAISignificanceComponent::ApplyChannels(const FAISignificanceLevelConfig& C
 		return;
 	}
 
-	ApplyBehaviorTreeTick(Config);
+	// Budget 是 Significance 之上的第二层限制。关键表现状态始终放行，
+	// 防止刚进入受击 / Ragdoll 时仍沿用上一轮 BudgetOff 冻结 Mesh。
+	const bool bBudgetAllowsChannels = !bBudgetDisabled || IsBudgetSuppressionBlockedByCriticalState();
+
+	ApplyBehaviorTreeTick(Config, bBudgetAllowsChannels);
 
 	if (AActionMonsterAIController* AIC = GetMonsterAIController())
 	{
-		AIC->SetActorTickEnabled(Config.bEnableControllerTick && bDefaultControllerTickEnabled);
-		AIC->SetActorTickInterval(Config.bEnableControllerTick ? Config.ControllerTickInterval : DefaultControllerTickInterval);
+		const bool bEnableControllerTick = Config.bEnableControllerTick && bBudgetAllowsChannels;
+		AIC->SetActorTickEnabled(bEnableControllerTick && bDefaultControllerTickEnabled);
+		AIC->SetActorTickInterval(bEnableControllerTick ? Config.ControllerTickInterval : DefaultControllerTickInterval);
 	}
 
 	if (UCharacterMovementComponent* Movement = Monster->GetCharacterMovement())
 	{
-		Movement->SetComponentTickEnabled(Config.bEnableMovementTick && bDefaultMovementTickEnabled);
-		Movement->SetComponentTickInterval(Config.bEnableMovementTick ? Config.MovementTickInterval : DefaultMovementTickInterval);
+		const bool bEnableMovementTick = Config.bEnableMovementTick && bBudgetAllowsChannels;
+		Movement->SetComponentTickEnabled(bEnableMovementTick && bDefaultMovementTickEnabled);
+		Movement->SetComponentTickInterval(bEnableMovementTick ? Config.MovementTickInterval : DefaultMovementTickInterval);
 	}
 
 	if (USkeletalMeshComponent* Mesh = Monster->GetMesh())
 	{
-		Mesh->SetComponentTickEnabled(Config.bEnableMeshTick && bDefaultMeshTickEnabled);
-		Mesh->SetComponentTickInterval(Config.bEnableMeshTick ? Config.MeshTickInterval : DefaultMeshTickInterval);
-		Mesh->bEnableUpdateRateOptimizations = Config.bEnableMeshTick
+		const bool bEnableMeshTick = Config.bEnableMeshTick && bBudgetAllowsChannels;
+		Mesh->SetComponentTickEnabled(bEnableMeshTick && bDefaultMeshTickEnabled);
+		Mesh->SetComponentTickInterval(bEnableMeshTick ? Config.MeshTickInterval : DefaultMeshTickInterval);
+		Mesh->bEnableUpdateRateOptimizations = bEnableMeshTick
 			? Config.bEnableAnimUpdateRateOptimizations
 			: bDefaultEnableAnimURO;
-		Mesh->VisibilityBasedAnimTickOption = Config.bEnableMeshTick
+		Mesh->VisibilityBasedAnimTickOption = bEnableMeshTick
 			? Config.VisibilityBasedAnimTickOption
 			: DefaultVisibilityBasedAnimTickOption;
 	}
 }
 
-void UAISignificanceComponent::ApplyBehaviorTreeTick(const FAISignificanceLevelConfig& Config)
+void UAISignificanceComponent::ApplyBehaviorTreeTick(const FAISignificanceLevelConfig& Config, bool bBudgetAllowsChannels)
 {
 	UBehaviorTreeComponent* BTComp = GetBehaviorTreeComponent();
 	if (BTComp == nullptr)
@@ -403,7 +410,7 @@ void UAISignificanceComponent::ApplyBehaviorTreeTick(const FAISignificanceLevelC
 
 	bSignificanceBTDisabled = !Config.bEnableBehaviorTreeTick;
 	const bool bFinalEnabled = Config.bEnableBehaviorTreeTick
-		&& !bBudgetBTDisabled
+		&& bBudgetAllowsChannels
 		&& bDefaultBehaviorTreeTickEnabled;
 
 	BTComp->SetComponentTickEnabled(bFinalEnabled);
@@ -431,6 +438,17 @@ bool UAISignificanceComponent::IsAIControlBlocked() const
 {
 	const AActionMonsterCharacter* Monster = GetOwnerMonster();
 	return Monster != nullptr && Monster->HasActionTag(ActionGameplayTags::Block_AIControl);
+}
+
+bool UAISignificanceComponent::IsBudgetSuppressionBlockedByCriticalState() const
+{
+	const AActionMonsterCharacter* Monster = GetOwnerMonster();
+	return Monster != nullptr
+		&& (Monster->IsAttacking()
+			|| Monster->IsBeingLockedOn()
+			|| Monster->HasActionTag(ActionGameplayTags::Block_AIControl)
+			|| Monster->HasActionTag(ActionGameplayTags::Block_HitReact)
+			|| Monster->HasActionTag(ActionGameplayTags::State_Ragdoll));
 }
 
 bool UAISignificanceComponent::ShouldDebugDraw() const
