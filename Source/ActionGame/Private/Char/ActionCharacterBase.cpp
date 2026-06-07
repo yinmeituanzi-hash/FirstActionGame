@@ -1,6 +1,8 @@
 #include "Char/ActionCharacterBase.h"
 #include "Animation/AnimInstance.h"
 #include "Char/ActionCharacterMovementComponent.h"
+#include "Combat/Skills/ActionSkillComponent.h"
+#include "Combat/VFX/ActionVFXComponent.h"
 #include "Combat/HitReact/HitPhysicsComponent.h"
 #include "Combat/HitReact/HitReactComponent.h"
 #include "Combat/HitReact/HitReactTypes.h"
@@ -46,6 +48,12 @@ AActionCharacterBase::AActionCharacterBase(const FObjectInitializer& ObjectIniti
 
 	// 受击物理组件：Day 5 先接 HitFly 击飞位移，Day 6 再扩展 Ragdoll / GetUp。
 	HitPhysicsComponent = CreateDefaultSubobject<UHitPhysicsComponent>(TEXT("HitPhysicsComponent"));
+
+	// 技能系统入口：Day1 先加载 DataTable 并创建持久型 SkillObjectMap。
+	SkillComponent = CreateDefaultSubobject<UActionSkillComponent>(TEXT("SkillComponent"));
+
+	// 特效播放门面：角色侧只保存句柄，真正播放和登记由 UActionVFXSubsystem 负责。
+	VFXComponent = CreateDefaultSubobject<UActionVFXComponent>(TEXT("ActionVFXComponent"));
 }
 
 void AActionCharacterBase::BeginPlay()
@@ -86,6 +94,11 @@ bool AActionCharacterBase::CanMove() const
 {
 	return !IsDead()
 		&& !HasActionTag(ActionGameplayTags::Block_Move);
+}
+
+void AActionCharacterBase::RequestActionState(EActionCharacterState InState)
+{
+	SetActionState(InState);
 }
 
 void AActionCharacterBase::ApplyDamage(float InDamage)
@@ -131,6 +144,12 @@ void AActionCharacterBase::Die()
 
 	bIsDead = true;
 	CurrentHP = 0.0f;
+
+	if (SkillComponent != nullptr && SkillComponent->IsUsingSkill())
+	{
+		SkillComponent->StopSkill(EActionSkillStopReason::Death);
+	}
+
 	SetActionState(EActionCharacterState::Dead);
 
 	// Day 2 先只做最小死亡状态：
@@ -246,6 +265,9 @@ void AActionCharacterBase::OnActionStateEnter(EActionCharacterState OldState, EA
 	case EActionCharacterState::HitReact:
 		AddActionTag(ActionGameplayTags::State_Action_HitReact);
 		break;
+	case EActionCharacterState::Skill:
+		AddActionTag(ActionGameplayTags::State_Action_Skill);
+		break;
 	case EActionCharacterState::Dead:
 		AddActionTag(ActionGameplayTags::State_Action_Dead);
 		AddActionTag(ActionGameplayTags::Block_Attack);
@@ -306,6 +328,9 @@ void AActionCharacterBase::ResetActionTagsForState(EActionCharacterState State)
 		break;
 	case EActionCharacterState::HitReact:
 		RemoveActionTag(ActionGameplayTags::State_Action_HitReact);
+		break;
+	case EActionCharacterState::Skill:
+		RemoveActionTag(ActionGameplayTags::State_Action_Skill);
 		break;
 	case EActionCharacterState::Dead:
 		RemoveActionTag(ActionGameplayTags::State_Action_Dead);

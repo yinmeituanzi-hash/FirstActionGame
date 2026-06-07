@@ -8,6 +8,7 @@
 #include "Combat/ActionFeatures/AttackFeature.h"
 #include "Combat/ActionFeatures/DodgeFeature.h"
 #include "Combat/ActionFeatures/NormalJumpFeature.h"
+#include "Combat/Skills/ActionSkillComponent.h"
 #include "Combat/Components/ActionCombatComponent.h"
 #include "Combat/Feedback/HitFeedbackComponent.h"
 #include "Combat/LockOn/ActionLockableInterface.h"
@@ -441,6 +442,13 @@ void AActionPlayerCharacter::OnAttackInput()
 		return;
 	}
 
+	if (!TryCancelCurrentSkillForInput(EActionSkillCancelFlag::NormalAttack, EActionSkillStopReason::SkillCancel))
+	{
+		return;
+	}
+
+	// Sprint 5 过渡期：普攻仍临时走 AttackFeature。
+	// Day5 / Day6 后普攻连段会迁入 SkillNode，完成后这里应改为 UseSkill(普攻 SkillId)，并删除 AttackFeature。
 	// 已经在攻击中：尝试连段。
 	if (AttackFeature->IsActive())
 	{
@@ -473,6 +481,11 @@ void AActionPlayerCharacter::OnDodgeInput()
 		return;
 	}
 
+	if (!TryCancelCurrentSkillForInput(EActionSkillCancelFlag::Dodge, EActionSkillStopReason::DodgeCancel))
+	{
+		return;
+	}
+
 	if (DodgeFeature->CanExecute())
 	{
 		InputBufferComponent->ConsumeInput(ActionPlayerInputNames::Dodge);
@@ -491,11 +504,21 @@ void AActionPlayerCharacter::OnJumpInput()
 
 	if (JumpFeature != nullptr && JumpFeature->CanExecute())
 	{
+		if (!TryCancelCurrentSkillForInput(EActionSkillCancelFlag::Jump, EActionSkillStopReason::JumpCancel))
+		{
+			return;
+		}
+
 		InputBufferComponent->ConsumeInput(ActionPlayerInputNames::Jump);
 		JumpFeature->Execute();
 	}
 	else
 	{
+		if (!TryCancelCurrentSkillForInput(EActionSkillCancelFlag::Jump, EActionSkillStopReason::JumpCancel))
+		{
+			return;
+		}
+
 		// 兜底：让 ACharacter 默认跳跃也工作（如果没配 JumpFeature 子类）。
 		Jump();
 	}
@@ -617,13 +640,19 @@ void AActionPlayerCharacter::ClearCurrentActiveFeature(UActionFeatureBase* InFea
 		// 缓存输入处理：让连段感觉更跟手。
 		if (InputBufferComponent != nullptr)
 		{
-			if (InputBufferComponent->HasValidInput(ActionPlayerInputNames::Dodge) && DodgeFeature != nullptr && DodgeFeature->CanExecute())
+			if (InputBufferComponent->HasValidInput(ActionPlayerInputNames::Dodge)
+				&& DodgeFeature != nullptr
+				&& TryCancelCurrentSkillForInput(EActionSkillCancelFlag::Dodge, EActionSkillStopReason::DodgeCancel)
+				&& DodgeFeature->CanExecute())
 			{
 				InputBufferComponent->ConsumeInput(ActionPlayerInputNames::Dodge);
 				DodgeFeature->Execute();
 				return;
 			}
-			if (InputBufferComponent->HasValidInput(ActionPlayerInputNames::Attack) && AttackFeature != nullptr && AttackFeature->CanExecute())
+			if (InputBufferComponent->HasValidInput(ActionPlayerInputNames::Attack)
+				&& AttackFeature != nullptr
+				&& TryCancelCurrentSkillForInput(EActionSkillCancelFlag::NormalAttack, EActionSkillStopReason::SkillCancel)
+				&& AttackFeature->CanExecute())
 			{
 				InputBufferComponent->ConsumeInput(ActionPlayerInputNames::Attack);
 				AttackFeature->Execute();
@@ -631,6 +660,27 @@ void AActionPlayerCharacter::ClearCurrentActiveFeature(UActionFeatureBase* InFea
 			}
 		}
 	}
+}
+
+bool AActionPlayerCharacter::TryCancelCurrentSkillForInput(EActionSkillCancelFlag IncomingType, EActionSkillStopReason StopReason)
+{
+	UActionSkillComponent* SkillComp = GetActionSkillComponent();
+	if (SkillComp == nullptr || !SkillComp->IsUsingSkill())
+	{
+		return true;
+	}
+
+	const bool bCancelled = SkillComp->TryCancelCurrentSkill(IncomingType, StopReason);
+	if (!bCancelled)
+	{
+		UE_LOG(
+			LogActionPlayerCharacter,
+			Verbose,
+			TEXT("ActionPlayerCharacter: input blocked by active skill. IncomingType=%d CurrentSkill=%s"),
+			static_cast<uint8>(IncomingType),
+			*SkillComp->GetCurrentSkillId().ToString());
+	}
+	return bCancelled;
 }
 
 // =============================================================================

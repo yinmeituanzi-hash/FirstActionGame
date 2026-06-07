@@ -3,6 +3,7 @@
 namespace ActionGameplayTags
 {
 	UE_DEFINE_GAMEPLAY_TAG(State_Action_Attacking, "State.Action.Attacking");
+	UE_DEFINE_GAMEPLAY_TAG(State_Action_Skill, "State.Action.Skill");
 	UE_DEFINE_GAMEPLAY_TAG(State_Action_Dodging, "State.Action.Dodging");
 	UE_DEFINE_GAMEPLAY_TAG(State_Action_HitReact, "State.Action.HitReact");
 	UE_DEFINE_GAMEPLAY_TAG(State_Action_Dead, "State.Action.Dead");

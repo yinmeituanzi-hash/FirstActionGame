@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Char/ActionCharacterBase.h"
+#include "Combat/Skills/ActionSkillTypes.h"
 #include "ActionPlayerCharacter.generated.h"
 
 class UActionCombatComponent;
@@ -90,7 +91,7 @@ public:
 	 * 由 Feature 调用，请求把角色主状态切到 InState。
 	 * 若 InState 是 Idle，会用 ResolveDefaultActionState() 决定真实回退值（HitReact/Dead 优先）。
 	 */
-	void RequestActionState(EActionCharacterState InState);
+	virtual void RequestActionState(EActionCharacterState InState) override;
 
 	template<typename T>
 	T* GetFeature() const
@@ -198,6 +199,7 @@ protected:
 
 	void InitializeFeatures();
 	UActionFeatureBase* CreateFeatureInstance(TSubclassOf<UActionFeatureBase> FeatureClass);
+	bool TryCancelCurrentSkillForInput(EActionSkillCancelFlag IncomingType, EActionSkillStopReason StopReason);
 
 	UFUNCTION()
 	void OnAnyMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload);

@@ -3,6 +3,7 @@
 #include "AI/Budget/AIBudgetSubsystem.h"
 #include "AI/Significance/AISignificanceComponent.h"
 #include "Char/ActionMonsterCharacter.h"
+#include "Combat/Skills/ActionSkillComponent.h"
 #include "Common/ActionGameplayTags.h"
 #include "Engine/World.h"
 #include "Logging/LogMacros.h"
@@ -100,6 +101,14 @@ FString UAIBudgetComponent::GetProtectionReason() const
 	if (Monster->IsAttacking())
 	{
 		return TEXT("Attack");
+	}
+
+	if (const UActionSkillComponent* SkillComponent = Monster->GetActionSkillComponent())
+	{
+		if (SkillComponent->IsUsingSkill())
+		{
+			return TEXT("Skill");
+		}
 	}
 
 	if (Monster->IsBeingLockedOn())

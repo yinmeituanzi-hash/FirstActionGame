@@ -28,8 +28,9 @@ class AActor;
  *   - 连段切换的 BlendOut 由 ActionCombatComponent 协助完成（保留组件 API）。
  *
  * 升级路径：
- *   未来若引入 SkillObject + SkillNode 系统，可以让 AttackFeature 退化为
- *   "调用 SkillTimeLine UseSkill(AttackSkillId)" 的薄壳。
+ *   Sprint 5 过渡期暂时保留本类，避免普攻功能在 SkillNode 尚未完成前断掉。
+ *   Day5 / Day6 之后，普攻连段、命中、Notify 窗口都应迁入 SkillObject + SkillNode + SkillEffect。
+ *   迁移完成后删除 AttackFeature，不再继续往这里添加新的攻击逻辑。
  */
 UCLASS(Blueprintable, ClassGroup = (Action))
 class ACTIONGAME_API UAttackFeature : public UMontageActionFeature

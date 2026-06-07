@@ -5,6 +5,7 @@
 namespace ActionGameplayTags
 {
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Action_Attacking);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Action_Skill);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Action_Dodging);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Action_HitReact);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(State_Action_Dead);

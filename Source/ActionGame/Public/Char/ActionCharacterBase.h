@@ -7,6 +7,8 @@
 #include "ActionCharacterBase.generated.h"
 
 class UActionCharacterMovementComponent;
+class UActionSkillComponent;
+class UActionVFXComponent;
 class UHitPhysicsComponent;
 class UHitReceiverComponent;
 class UHitReactComponent;
@@ -19,7 +21,8 @@ enum class EActionCharacterState : uint8
 	Attacking UMETA(DisplayName = "Attacking"),
 	Dodging UMETA(DisplayName = "Dodging"),
 	HitReact UMETA(DisplayName = "HitReact"),
-	Dead UMETA(DisplayName = "Dead")
+	Dead UMETA(DisplayName = "Dead"),
+	Skill UMETA(DisplayName = "Skill")
 };
 
 UENUM(BlueprintType)
@@ -112,6 +115,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|Combat")
 	UHitPhysicsComponent* GetHitPhysicsComponent() const { return HitPhysicsComponent; }
 
+	UFUNCTION(BlueprintPure, Category = "Action|Skill")
+	UActionSkillComponent* GetActionSkillComponent() const { return SkillComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|VFX")
+	UActionVFXComponent* GetActionVFXComponent() const { return VFXComponent; }
+
 	/** 最小死亡入口。后续怪物死亡、玩家死亡都会从这里扩展。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
 	virtual void Die();
@@ -142,6 +151,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Action|State")
 	bool IsInActionState(EActionCharacterState InState) const { return CurrentActionState == InState; }
+
+	UFUNCTION(BlueprintCallable, Category = "Action|State")
+	virtual void RequestActionState(EActionCharacterState InState);
 
 	UFUNCTION(BlueprintPure, Category = "Action|Movement")
 	virtual bool CanMove() const;
@@ -198,6 +210,14 @@ protected:
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat")
 	TObjectPtr<UHitPhysicsComponent> HitPhysicsComponent;
+
+	/** 技能系统入口。Day1 先负责加载技能表和持有 SkillObjectMap，后续逐步接管攻击/技能。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Skill")
+	TObjectPtr<UActionSkillComponent> SkillComponent;
+
+	/** 角色侧特效播放门面。所有角色局部 VFX 通过它转发给 UActionVFXSubsystem。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|VFX")
+	TObjectPtr<UActionVFXComponent> VFXComponent;
 
 	virtual bool CanChangeActionState(EActionCharacterState OldState, EActionCharacterState NewState) const;
 	virtual void OnActionStateExit(EActionCharacterState OldState, EActionCharacterState NewState);
