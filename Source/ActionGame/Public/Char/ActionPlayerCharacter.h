@@ -200,6 +200,7 @@ protected:
 	void InitializeFeatures();
 	UActionFeatureBase* CreateFeatureInstance(TSubclassOf<UActionFeatureBase> FeatureClass);
 	bool TryCancelCurrentSkillForInput(EActionSkillCancelFlag IncomingType, EActionSkillStopReason StopReason);
+	void TryMoveCancelCurrentSkill();
 
 	UFUNCTION()
 	void OnAnyMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload);

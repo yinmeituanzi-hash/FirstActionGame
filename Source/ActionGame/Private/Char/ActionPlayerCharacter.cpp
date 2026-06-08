@@ -299,6 +299,11 @@ void AActionPlayerCharacter::Move(const FInputActionValue& Value)
 	const FVector2D MovementVector = Value.Get<FVector2D>();
 	LastMoveInput = MovementVector;
 
+	if (!MovementVector.IsNearlyZero())
+	{
+		TryMoveCancelCurrentSkill();
+	}
+
 	if (!CanMove() || Controller == nullptr)
 	{
 		return;
@@ -681,6 +686,22 @@ bool AActionPlayerCharacter::TryCancelCurrentSkillForInput(EActionSkillCancelFla
 			*SkillComp->GetCurrentSkillId().ToString());
 	}
 	return bCancelled;
+}
+
+void AActionPlayerCharacter::TryMoveCancelCurrentSkill()
+{
+	UActionSkillComponent* SkillComp = GetActionSkillComponent();
+	if (SkillComp == nullptr || !SkillComp->IsUsingSkill())
+	{
+		return;
+	}
+
+	// 移动输入每帧触发。这里不能像攻击/闪避那样失败就 return，
+	// 否则 ReleaseMoveBlock 后的恢复段移动也会被误拦。是否真的能移动仍由 CanMove()/Block.Move 决定。
+	if (SkillComp->CheckCanCancelCurrentSkill(EActionSkillCancelFlag::Move))
+	{
+		SkillComp->TryCancelCurrentSkill(EActionSkillCancelFlag::Move, EActionSkillStopReason::MoveCancel);
+	}
 }
 
 // =============================================================================

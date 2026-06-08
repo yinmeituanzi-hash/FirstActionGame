@@ -6,8 +6,12 @@
 #include "ActionSkillComponent.generated.h"
 
 class AActionCharacterBase;
+class UActionSkillNode;
 class UActionSkillObject;
+class UAnimInstance;
+class UAnimMontage;
 class UDataTable;
+struct FBranchingPointNotifyPayload;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FActionSkillStateChangedSignature, FName, SkillId, bool, bActive);
 
@@ -83,6 +87,25 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
 	bool TryCancelCurrentSkill(EActionSkillCancelFlag IncomingType, EActionSkillStopReason Reason);
 
+	UFUNCTION(BlueprintPure, Category = "Action|Skill")
+	bool IsSkillCancelWindowOpen(EActionSkillCancelFlag IncomingType) const;
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
+	void OpenSkillCancelWindow(
+		int32 CancelWindowMask,
+		bool bReleaseMoveBlock,
+		bool bReleaseDodgeBlock,
+		bool bReleaseAttackBlock,
+		bool bMarkRecoverWindow);
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
+	void CloseSkillCancelWindow(
+		int32 CancelWindowMask,
+		bool bReleaseMoveBlock,
+		bool bReleaseDodgeBlock,
+		bool bReleaseAttackBlock,
+		bool bMarkRecoverWindow);
+
 private:
 	/** 按 SkillId 持有的运行时技能对象。冷却等运行时状态存在这里，不写回 DataTable。 */
 	UPROPERTY(Transient)
@@ -92,13 +115,44 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<UActionSkillObject> CurrentSkillObject = nullptr;
 
+	UPROPERTY(Transient)
+	TObjectPtr<UActionSkillNode> CurrentSkillNode = nullptr;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UAnimMontage> ActiveSkillMontage = nullptr;
+
 	/** 当前技能启动时实际添加过的标签，停止时只移除这一组，避免误删别的系统标签。 */
 	UPROPERTY(Transient)
 	FGameplayTagContainer ActiveSkillAppliedTags;
 
+	UPROPERTY(Transient)
+	TMap<FGameplayTag, int32> ActiveSkillWindowTagCounts;
+
+	UPROPERTY(Transient)
+	TMap<FGameplayTag, int32> ActiveSkillReleasedBlockCounts;
+
 	/** 从 SkillDataTable 重建 SkillObjectMap。BeginPlay 调用，也方便编辑器测试时复用。 */
 	void LoadSkillObjectsFromTable();
 	void ClearSkillObjects();
+	bool StartSkillNode(FName NodeId);
+	const FActionSkillNodeRow* FindSkillNodeRow(FName NodeId) const;
+	UAnimInstance* GetOwnerAnimInstance() const;
+	bool PlayCurrentNodeMontage();
+	void StopActiveSkillMontage(float BlendOutTime = -1.0f);
+	void ClearSkillMontageDelegates(UAnimInstance* AnimInstance, UAnimMontage* MontageForEndDelegate);
+	void DeactivateCurrentSkillNode();
 	void ApplyActiveSkillTags(const FActionSkillRow& SkillData);
 	void ClearActiveSkillTags();
+	void AddWindowTagCount(FGameplayTag Tag);
+	void RemoveWindowTagCount(FGameplayTag Tag);
+	void AddReleasedBlockCount(FGameplayTag Tag);
+	void RemoveReleasedBlockCount(FGameplayTag Tag);
+	void ClearActiveSkillWindows(bool bRestoreReleasedBlocks);
+	bool ShouldRestoreReleasedBlock(FGameplayTag Tag) const;
+
+	UFUNCTION()
+	void HandleSkillMontageEnded(UAnimMontage* Montage, bool bInterrupted);
+
+	UFUNCTION()
+	void HandleSkillMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload);
 };

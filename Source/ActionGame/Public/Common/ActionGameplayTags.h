@@ -36,4 +36,14 @@ namespace ActionGameplayTags
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Attack_CanCombo);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Attack_CanTurn);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Dodge_CanRecover);
+
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Skill_CanNormalAttackCancel);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Skill_CanHeavyAttackCancel);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Skill_CanDodgeCancel);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Skill_CanSkillCancel);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Skill_CanJumpCancel);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Skill_CanUltimateCancel);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Skill_CanMoveCancel);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Skill_CanRecover);
+	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Skill_CanNextNode);
 }

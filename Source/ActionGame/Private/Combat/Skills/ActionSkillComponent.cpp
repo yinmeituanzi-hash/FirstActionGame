@@ -1,11 +1,62 @@
 #include "Combat/Skills/ActionSkillComponent.h"
 
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Char/ActionCharacterBase.h"
+#include "Combat/Skills/ActionSkillNode.h"
 #include "Combat/Skills/ActionSkillObject.h"
 #include "Common/ActionGameplayTags.h"
 #include "Engine/DataTable.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogActionSkill, Log, All);
+
+namespace
+{
+	FGameplayTag GetSkillWindowTagForCancelFlag(EActionSkillCancelFlag IncomingType)
+	{
+		switch (IncomingType)
+		{
+		case EActionSkillCancelFlag::NormalAttack:
+			return ActionGameplayTags::Window_Skill_CanNormalAttackCancel;
+		case EActionSkillCancelFlag::HeavyAttack:
+			return ActionGameplayTags::Window_Skill_CanHeavyAttackCancel;
+		case EActionSkillCancelFlag::Dodge:
+			return ActionGameplayTags::Window_Skill_CanDodgeCancel;
+		case EActionSkillCancelFlag::Skill:
+			return ActionGameplayTags::Window_Skill_CanSkillCancel;
+		case EActionSkillCancelFlag::Jump:
+			return ActionGameplayTags::Window_Skill_CanJumpCancel;
+		case EActionSkillCancelFlag::Ultimate:
+			return ActionGameplayTags::Window_Skill_CanUltimateCancel;
+		case EActionSkillCancelFlag::Move:
+			return ActionGameplayTags::Window_Skill_CanMoveCancel;
+		default:
+			return FGameplayTag();
+		}
+	}
+
+	void ForEachCancelFlagInMask(int32 CancelWindowMask, TFunctionRef<void(EActionSkillCancelFlag)> Visitor)
+	{
+		const EActionSkillCancelFlag Flags[] =
+		{
+			EActionSkillCancelFlag::NormalAttack,
+			EActionSkillCancelFlag::HeavyAttack,
+			EActionSkillCancelFlag::Dodge,
+			EActionSkillCancelFlag::Skill,
+			EActionSkillCancelFlag::Jump,
+			EActionSkillCancelFlag::Ultimate,
+			EActionSkillCancelFlag::Move
+		};
+
+		for (const EActionSkillCancelFlag Flag : Flags)
+		{
+			if ((CancelWindowMask & static_cast<int32>(Flag)) != 0)
+			{
+				Visitor(Flag);
+			}
+		}
+	}
+}
 
 // 角色侧技能运行时组件。Day1 先处理数据加载、生命周期状态和冷却；
 // 技能节点与效果执行会在后续 Day 逐步叠加。
@@ -83,7 +134,7 @@ bool UActionSkillComponent::CanUseSkill(FName SkillId, EActionSkillCancelFlag In
 			return false;
 		}
 
-		if (!CurrentSkillObject->CanBeCancelledBy(IncomingType))
+		if (!CheckCanCancelCurrentSkill(IncomingType))
 		{
 			return false;
 		}
@@ -122,6 +173,8 @@ bool UActionSkillComponent::UseSkill(FName SkillId, AActor* OptionalTarget, EAct
 
 	OnSkillStateChanged.Broadcast(SkillId, true);
 
+	StartSkillNode(SkillObject->GetSkillData().BeginNodeId);
+
 	UE_LOG(LogActionSkill, Log, TEXT("SkillComponent[%s]: UseSkill started. SkillId=%s"), *GetNameSafe(GetOwner()), *SkillId.ToString());
 	return true;
 }
@@ -134,6 +187,9 @@ void UActionSkillComponent::StopSkill(EActionSkillStopReason Reason)
 	}
 
 	const FName StoppedSkillId = CurrentSkillObject->GetSkillId();
+	StopActiveSkillMontage();
+	DeactivateCurrentSkillNode();
+	ClearActiveSkillWindows(false);
 	CurrentSkillObject->Deactivate(Reason);
 	CurrentSkillObject = nullptr;
 	ClearActiveSkillTags();
@@ -160,11 +216,20 @@ void UActionSkillComponent::StopSkill(EActionSkillStopReason Reason)
 void UActionSkillComponent::OnSkillNotify(FName EventName)
 {
 	UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: Notify=%s"), *GetNameSafe(GetOwner()), *EventName.ToString());
+	if (CurrentSkillNode != nullptr)
+	{
+		CurrentSkillNode->OnNotify(EventName);
+	}
 }
 
 bool UActionSkillComponent::CheckCanCancelCurrentSkill(EActionSkillCancelFlag IncomingType) const
 {
-	return CurrentSkillObject == nullptr || CurrentSkillObject->CanBeCancelledBy(IncomingType);
+	if (CurrentSkillObject == nullptr)
+	{
+		return true;
+	}
+
+	return CurrentSkillObject->CanBeCancelledBy(IncomingType) && IsSkillCancelWindowOpen(IncomingType);
 }
 
 bool UActionSkillComponent::TryCancelCurrentSkill(EActionSkillCancelFlag IncomingType, EActionSkillStopReason Reason)
@@ -188,6 +253,95 @@ bool UActionSkillComponent::TryCancelCurrentSkill(EActionSkillCancelFlag Incomin
 
 	StopSkill(Reason);
 	return true;
+}
+
+bool UActionSkillComponent::IsSkillCancelWindowOpen(EActionSkillCancelFlag IncomingType) const
+{
+	if (CurrentSkillObject == nullptr)
+	{
+		return true;
+	}
+
+	const FGameplayTag WindowTag = GetSkillWindowTagForCancelFlag(IncomingType);
+	if (!WindowTag.IsValid())
+	{
+		return false;
+	}
+
+	const int32* Count = ActiveSkillWindowTagCounts.Find(WindowTag);
+	return Count != nullptr && *Count > 0;
+}
+
+void UActionSkillComponent::OpenSkillCancelWindow(
+	int32 CancelWindowMask,
+	bool bReleaseMoveBlock,
+	bool bReleaseDodgeBlock,
+	bool bReleaseAttackBlock,
+	bool bMarkRecoverWindow)
+{
+	if (CurrentSkillObject == nullptr)
+	{
+		return;
+	}
+
+	ForEachCancelFlagInMask(CancelWindowMask, [this](EActionSkillCancelFlag Flag)
+	{
+		AddWindowTagCount(GetSkillWindowTagForCancelFlag(Flag));
+	});
+
+	if (bMarkRecoverWindow)
+	{
+		AddWindowTagCount(ActionGameplayTags::Window_Skill_CanRecover);
+	}
+
+	if (bReleaseMoveBlock)
+	{
+		AddReleasedBlockCount(ActionGameplayTags::Block_Move);
+	}
+	if (bReleaseDodgeBlock)
+	{
+		AddReleasedBlockCount(ActionGameplayTags::Block_Dodge);
+	}
+	if (bReleaseAttackBlock)
+	{
+		AddReleasedBlockCount(ActionGameplayTags::Block_Attack);
+	}
+}
+
+void UActionSkillComponent::CloseSkillCancelWindow(
+	int32 CancelWindowMask,
+	bool bReleaseMoveBlock,
+	bool bReleaseDodgeBlock,
+	bool bReleaseAttackBlock,
+	bool bMarkRecoverWindow)
+{
+	if (CurrentSkillObject == nullptr)
+	{
+		return;
+	}
+
+	ForEachCancelFlagInMask(CancelWindowMask, [this](EActionSkillCancelFlag Flag)
+	{
+		RemoveWindowTagCount(GetSkillWindowTagForCancelFlag(Flag));
+	});
+
+	if (bMarkRecoverWindow)
+	{
+		RemoveWindowTagCount(ActionGameplayTags::Window_Skill_CanRecover);
+	}
+
+	if (bReleaseMoveBlock)
+	{
+		RemoveReleasedBlockCount(ActionGameplayTags::Block_Move);
+	}
+	if (bReleaseDodgeBlock)
+	{
+		RemoveReleasedBlockCount(ActionGameplayTags::Block_Dodge);
+	}
+	if (bReleaseAttackBlock)
+	{
+		RemoveReleasedBlockCount(ActionGameplayTags::Block_Attack);
+	}
 }
 
 // DataTable 行是技能定义。这里把配置行转换成运行时对象，
@@ -252,6 +406,164 @@ void UActionSkillComponent::ClearSkillObjects()
 	SkillObjectMap.Reset();
 }
 
+bool UActionSkillComponent::StartSkillNode(FName NodeId)
+{
+	StopActiveSkillMontage();
+	DeactivateCurrentSkillNode();
+	ClearActiveSkillWindows(false);
+
+	if (NodeId.IsNone())
+	{
+		UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: skill has no BeginNode."), *GetNameSafe(GetOwner()));
+		return true;
+	}
+
+	const FActionSkillNodeRow* NodeRow = FindSkillNodeRow(NodeId);
+	if (NodeRow == nullptr || CurrentSkillObject == nullptr)
+	{
+		UE_LOG(
+			LogActionSkill,
+			Warning,
+			TEXT("SkillComponent[%s]: failed to start skill node. NodeId=%s"),
+			*GetNameSafe(GetOwner()),
+			*NodeId.ToString());
+		return false;
+	}
+
+	UActionSkillNode* NewNode = NewObject<UActionSkillNode>(this);
+	NewNode->InitFromData(this, CurrentSkillObject, NodeId, *NodeRow, SkillEffectDataTable);
+	CurrentSkillNode = NewNode;
+	CurrentSkillNode->Activate();
+
+	if (!PlayCurrentNodeMontage())
+	{
+		UE_LOG(
+			LogActionSkill,
+			Warning,
+			TEXT("SkillComponent[%s]: node started without montage or montage failed. NodeId=%s"),
+			*GetNameSafe(GetOwner()),
+			*NodeId.ToString());
+	}
+
+	return true;
+}
+
+const FActionSkillNodeRow* UActionSkillComponent::FindSkillNodeRow(FName NodeId) const
+{
+	if (SkillNodeDataTable == nullptr || SkillNodeDataTable->GetRowStruct() != FActionSkillNodeRow::StaticStruct())
+	{
+		return nullptr;
+	}
+
+	return SkillNodeDataTable->FindRow<FActionSkillNodeRow>(NodeId, TEXT("ActionSkillComponent.FindSkillNodeRow"));
+}
+
+UAnimInstance* UActionSkillComponent::GetOwnerAnimInstance() const
+{
+	const AActionCharacterBase* OwnerCharacter = GetOwnerCharacter();
+	return OwnerCharacter != nullptr && OwnerCharacter->GetMesh() != nullptr ? OwnerCharacter->GetMesh()->GetAnimInstance() : nullptr;
+}
+
+bool UActionSkillComponent::PlayCurrentNodeMontage()
+{
+	if (CurrentSkillNode == nullptr)
+	{
+		return false;
+	}
+
+	const FActionSkillNodeRow& NodeData = CurrentSkillNode->GetNodeData();
+	if (NodeData.Montage == nullptr)
+	{
+		return false;
+	}
+
+	UAnimInstance* AnimInstance = GetOwnerAnimInstance();
+	if (AnimInstance == nullptr)
+	{
+		return false;
+	}
+
+	StopActiveSkillMontage();
+
+	const float Duration = AnimInstance->Montage_Play(NodeData.Montage, NodeData.PlayRate);
+	if (Duration <= 0.0f)
+	{
+		return false;
+	}
+
+	ActiveSkillMontage = NodeData.Montage;
+	if (!NodeData.StartSection.IsNone())
+	{
+		AnimInstance->Montage_JumpToSection(NodeData.StartSection, ActiveSkillMontage);
+	}
+
+	FOnMontageEnded EndedDelegate;
+	EndedDelegate.BindUObject(this, &UActionSkillComponent::HandleSkillMontageEnded);
+	AnimInstance->Montage_SetEndDelegate(EndedDelegate, ActiveSkillMontage);
+
+	AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &UActionSkillComponent::HandleSkillMontageNotifyBegin);
+	AnimInstance->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &UActionSkillComponent::HandleSkillMontageNotifyBegin);
+
+	UE_LOG(
+		LogActionSkill,
+		Log,
+		TEXT("SkillComponent[%s]: playing skill montage. Skill=%s Node=%s Montage=%s Duration=%.2f"),
+		*GetNameSafe(GetOwner()),
+		*GetCurrentSkillId().ToString(),
+		*CurrentSkillNode->GetNodeId().ToString(),
+		*GetNameSafe(ActiveSkillMontage),
+		Duration);
+
+	return true;
+}
+
+void UActionSkillComponent::StopActiveSkillMontage(float BlendOutTime)
+{
+	UAnimInstance* AnimInstance = GetOwnerAnimInstance();
+	if (AnimInstance == nullptr || ActiveSkillMontage == nullptr)
+	{
+		ActiveSkillMontage = nullptr;
+		return;
+	}
+
+	UAnimMontage* MontageToStop = ActiveSkillMontage;
+	ClearSkillMontageDelegates(AnimInstance, MontageToStop);
+	ActiveSkillMontage = nullptr;
+
+	if (AnimInstance->Montage_IsPlaying(MontageToStop))
+	{
+		const float UseBlendOut = BlendOutTime >= 0.0f
+			? BlendOutTime
+			: (CurrentSkillNode != nullptr ? CurrentSkillNode->GetNodeData().MontageBlendOutTime : 0.1f);
+		AnimInstance->Montage_Stop(UseBlendOut, MontageToStop);
+	}
+}
+
+void UActionSkillComponent::ClearSkillMontageDelegates(UAnimInstance* AnimInstance, UAnimMontage* MontageForEndDelegate)
+{
+	if (AnimInstance == nullptr)
+	{
+		return;
+	}
+
+	if (MontageForEndDelegate != nullptr)
+	{
+		FOnMontageEnded EmptyEndedDelegate;
+		AnimInstance->Montage_SetEndDelegate(EmptyEndedDelegate, MontageForEndDelegate);
+	}
+
+	AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &UActionSkillComponent::HandleSkillMontageNotifyBegin);
+}
+
+void UActionSkillComponent::DeactivateCurrentSkillNode()
+{
+	if (CurrentSkillNode != nullptr)
+	{
+		CurrentSkillNode->Deactivate();
+		CurrentSkillNode = nullptr;
+	}
+}
+
 void UActionSkillComponent::ApplyActiveSkillTags(const FActionSkillRow& SkillData)
 {
 	ClearActiveSkillTags();
@@ -294,4 +606,161 @@ void UActionSkillComponent::ClearActiveSkillTags()
 	}
 
 	ActiveSkillAppliedTags.Reset();
+}
+
+void UActionSkillComponent::AddWindowTagCount(FGameplayTag Tag)
+{
+	if (!Tag.IsValid())
+	{
+		return;
+	}
+
+	int32& Count = ActiveSkillWindowTagCounts.FindOrAdd(Tag);
+	++Count;
+	if (Count == 1)
+	{
+		if (AActionCharacterBase* OwnerCharacter = GetOwnerCharacter())
+		{
+			OwnerCharacter->AddActionTagExternal(Tag);
+		}
+	}
+}
+
+void UActionSkillComponent::RemoveWindowTagCount(FGameplayTag Tag)
+{
+	if (!Tag.IsValid())
+	{
+		return;
+	}
+
+	int32* Count = ActiveSkillWindowTagCounts.Find(Tag);
+	if (Count == nullptr)
+	{
+		return;
+	}
+
+	--(*Count);
+	if (*Count <= 0)
+	{
+		ActiveSkillWindowTagCounts.Remove(Tag);
+		if (AActionCharacterBase* OwnerCharacter = GetOwnerCharacter())
+		{
+			OwnerCharacter->RemoveActionTagExternal(Tag);
+		}
+	}
+}
+
+void UActionSkillComponent::AddReleasedBlockCount(FGameplayTag Tag)
+{
+	if (!Tag.IsValid())
+	{
+		return;
+	}
+
+	int32& Count = ActiveSkillReleasedBlockCounts.FindOrAdd(Tag);
+	++Count;
+	if (Count == 1)
+	{
+		if (AActionCharacterBase* OwnerCharacter = GetOwnerCharacter())
+		{
+			OwnerCharacter->RemoveActionTagExternal(Tag);
+		}
+	}
+}
+
+void UActionSkillComponent::RemoveReleasedBlockCount(FGameplayTag Tag)
+{
+	if (!Tag.IsValid())
+	{
+		return;
+	}
+
+	int32* Count = ActiveSkillReleasedBlockCounts.Find(Tag);
+	if (Count == nullptr)
+	{
+		return;
+	}
+
+	--(*Count);
+	if (*Count <= 0)
+	{
+		ActiveSkillReleasedBlockCounts.Remove(Tag);
+		if (ShouldRestoreReleasedBlock(Tag))
+		{
+			if (AActionCharacterBase* OwnerCharacter = GetOwnerCharacter())
+			{
+				OwnerCharacter->AddActionTagExternal(Tag);
+			}
+		}
+	}
+}
+
+void UActionSkillComponent::ClearActiveSkillWindows(bool bRestoreReleasedBlocks)
+{
+	AActionCharacterBase* OwnerCharacter = GetOwnerCharacter();
+	if (OwnerCharacter != nullptr)
+	{
+		for (const TPair<FGameplayTag, int32>& Pair : ActiveSkillWindowTagCounts)
+		{
+			OwnerCharacter->RemoveActionTagExternal(Pair.Key);
+		}
+
+		if (bRestoreReleasedBlocks)
+		{
+			for (const TPair<FGameplayTag, int32>& Pair : ActiveSkillReleasedBlockCounts)
+			{
+				if (ShouldRestoreReleasedBlock(Pair.Key))
+				{
+					OwnerCharacter->AddActionTagExternal(Pair.Key);
+				}
+			}
+		}
+	}
+
+	ActiveSkillWindowTagCounts.Reset();
+	ActiveSkillReleasedBlockCounts.Reset();
+}
+
+bool UActionSkillComponent::ShouldRestoreReleasedBlock(FGameplayTag Tag) const
+{
+	return CurrentSkillObject != nullptr && ActiveSkillAppliedTags.HasTagExact(Tag);
+}
+
+void UActionSkillComponent::HandleSkillMontageEnded(UAnimMontage* Montage, bool bInterrupted)
+{
+	if (Montage == nullptr || Montage != ActiveSkillMontage)
+	{
+		return;
+	}
+
+	UAnimInstance* AnimInstance = GetOwnerAnimInstance();
+	ClearSkillMontageDelegates(AnimInstance, Montage);
+	ActiveSkillMontage = nullptr;
+
+	const EActionSkillStopReason Reason = bInterrupted ? EActionSkillStopReason::Forced : EActionSkillStopReason::Normal;
+	UE_LOG(
+		LogActionSkill,
+		Log,
+		TEXT("SkillComponent[%s]: skill montage ended. Montage=%s Interrupted=%s"),
+		*GetNameSafe(GetOwner()),
+		*GetNameSafe(Montage),
+		bInterrupted ? TEXT("true") : TEXT("false"));
+
+	StopSkill(Reason);
+}
+
+void UActionSkillComponent::HandleSkillMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& /*BranchingPointPayload*/)
+{
+	if (ActiveSkillMontage == nullptr || CurrentSkillNode == nullptr)
+	{
+		return;
+	}
+
+	UAnimInstance* AnimInstance = GetOwnerAnimInstance();
+	if (AnimInstance == nullptr || !AnimInstance->Montage_IsPlaying(ActiveSkillMontage))
+	{
+		return;
+	}
+
+	OnSkillNotify(NotifyName);
 }

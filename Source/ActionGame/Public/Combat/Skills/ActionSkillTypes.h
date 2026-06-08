@@ -35,7 +35,8 @@ enum class EActionSkillCancelFlag : uint8
 	Dodge = 1 << 2 UMETA(DisplayName = "Dodge"),
 	Skill = 1 << 3 UMETA(DisplayName = "Skill"),
 	Jump = 1 << 4 UMETA(DisplayName = "Jump"),
-	Ultimate = 1 << 5 UMETA(DisplayName = "Ultimate")
+	Ultimate = 1 << 5 UMETA(DisplayName = "Ultimate"),
+	Move = 1 << 6 UMETA(DisplayName = "Move")
 };
 ENUM_CLASS_FLAGS(EActionSkillCancelFlag);
 
@@ -46,6 +47,7 @@ enum class EActionSkillStopReason : uint8
 	SkillCancel UMETA(DisplayName = "Skill Cancel"),
 	DodgeCancel UMETA(DisplayName = "Dodge Cancel"),
 	JumpCancel UMETA(DisplayName = "Jump Cancel"),
+	MoveCancel UMETA(DisplayName = "Move Cancel"),
 	HitInterrupt UMETA(DisplayName = "Hit Interrupt"),
 	Death UMETA(DisplayName = "Death"),
 	Forced UMETA(DisplayName = "Forced")

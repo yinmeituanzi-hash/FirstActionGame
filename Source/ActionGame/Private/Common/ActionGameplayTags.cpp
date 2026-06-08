@@ -24,4 +24,14 @@ namespace ActionGameplayTags
 	UE_DEFINE_GAMEPLAY_TAG(Window_Attack_CanCombo, "Window.Attack.CanCombo");
 	UE_DEFINE_GAMEPLAY_TAG(Window_Attack_CanTurn, "Window.Attack.CanTurn");
 	UE_DEFINE_GAMEPLAY_TAG(Window_Dodge_CanRecover, "Window.Dodge.CanRecover");
+
+	UE_DEFINE_GAMEPLAY_TAG(Window_Skill_CanNormalAttackCancel, "Window.Skill.CanNormalAttackCancel");
+	UE_DEFINE_GAMEPLAY_TAG(Window_Skill_CanHeavyAttackCancel, "Window.Skill.CanHeavyAttackCancel");
+	UE_DEFINE_GAMEPLAY_TAG(Window_Skill_CanDodgeCancel, "Window.Skill.CanDodgeCancel");
+	UE_DEFINE_GAMEPLAY_TAG(Window_Skill_CanSkillCancel, "Window.Skill.CanSkillCancel");
+	UE_DEFINE_GAMEPLAY_TAG(Window_Skill_CanJumpCancel, "Window.Skill.CanJumpCancel");
+	UE_DEFINE_GAMEPLAY_TAG(Window_Skill_CanUltimateCancel, "Window.Skill.CanUltimateCancel");
+	UE_DEFINE_GAMEPLAY_TAG(Window_Skill_CanMoveCancel, "Window.Skill.CanMoveCancel");
+	UE_DEFINE_GAMEPLAY_TAG(Window_Skill_CanRecover, "Window.Skill.CanRecover");
+	UE_DEFINE_GAMEPLAY_TAG(Window_Skill_CanNextNode, "Window.Skill.CanNextNode");
 }
