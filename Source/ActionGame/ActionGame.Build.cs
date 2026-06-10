@@ -20,7 +20,8 @@ public class ActionGame : ModuleRules
 			"NavigationSystem",
 			"AnimGraphRuntime",
 			"MotionWarping",
-			"Niagara"
+			"Niagara",
+			"PhysicsCore"
 		});
 	}
 }

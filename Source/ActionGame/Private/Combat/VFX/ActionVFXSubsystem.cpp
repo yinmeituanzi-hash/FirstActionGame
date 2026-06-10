@@ -179,7 +179,10 @@ void UActionVFXSubsystem::StopVFXBySkill(AActor* Owner, FName SkillId)
 	for (const TPair<int32, FActionVFXRecord>& Pair : ActiveRecords)
 	{
 		const FActionVFXRecord& Record = Pair.Value;
-		if (Record.OwnerActor.Get() == Owner && Record.SkillId == SkillId)
+		const bool bShouldStopWithSkill =
+			Record.LifetimePolicy == EActionVFXLifetimePolicy::FollowSkillLifetime ||
+			Record.bStopOnSkillEnd;
+		if (Record.OwnerActor.Get() == Owner && Record.SkillId == SkillId && bShouldStopWithSkill)
 		{
 			ToStop.Add(Record.Handle);
 		}
@@ -234,6 +237,7 @@ FActionVFXHandle UActionVFXSubsystem::RegisterRecord(const FActionVFXPlayRequest
 	Record.OwnerActor = Request.Context.SourceActor;
 	Record.NiagaraComponent = NiagaraComponent;
 	Record.LifetimePolicy = Request.VFXRow.LifetimePolicy;
+	Record.bStopOnSkillEnd = Request.VFXRow.bStopOnSkillEnd;
 	Record.Duration = Request.VFXRow.Duration;
 	Record.StartTime = GetWorld() != nullptr ? GetWorld()->GetTimeSeconds() : 0.0f;
 	ActiveRecords.Add(Handle.Id, Record);

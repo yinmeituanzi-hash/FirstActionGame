@@ -53,6 +53,7 @@ void UActionSkillObject::Activate(AActor* InTarget)
 
 	bActive = true;
 	CurrentTarget = InTarget;
+	ResetHitActorsThisNode();
 }
 
 void UActionSkillObject::Deactivate(EActionSkillStopReason Reason)
@@ -64,6 +65,7 @@ void UActionSkillObject::Deactivate(EActionSkillStopReason Reason)
 
 	bActive = false;
 	CurrentTarget.Reset();
+	ResetHitActorsThisNode();
 	LastStopReason = Reason;
 
 	// 有些技能被受击打断时不应该进入冷却。这个规则放在配置行里，
@@ -86,4 +88,9 @@ bool UActionSkillObject::CanBeCancelledBy(EActionSkillCancelFlag IncomingType) c
 {
 	const int32 IncomingMask = static_cast<int32>(IncomingType);
 	return IncomingMask != 0 && (SkillData.AllowCancelBy & IncomingMask) != 0;
+}
+
+void UActionSkillObject::ResetHitActorsThisNode()
+{
+	HitActorsThisNode.Reset();
 }

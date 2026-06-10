@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AI/Noise/AINoiseTypes.h"
 #include "Animation/AnimMontage.h"
 #include "Combat/Skills/ActionSkillCreature.h"
 #include "Combat/HitReact/HitReactTypes.h"
@@ -79,6 +80,8 @@ enum class EActionSkillTargetFilter : uint8
 	Sphere UMETA(DisplayName = "Sphere"),
 	Cone UMETA(DisplayName = "Cone"),
 	Capsule UMETA(DisplayName = "Capsule"),
+	Box UMETA(DisplayName = "Box"),
+	SweepBox UMETA(DisplayName = "Sweep Box"),
 	Self UMETA(DisplayName = "Self"),
 	TargetActor UMETA(DisplayName = "Target Actor")
 };
@@ -210,11 +213,31 @@ struct ACTIONGAME_API FActionSkillEffectRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
 	float ForwardOffset = 120.0f;
 
+	/** Box / SweepBox 使用的半尺寸。X=前后长度半径，Y=左右宽度半径，Z=高度半径。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
+	FVector BoxExtent = FVector(160.0f, 80.0f, 80.0f);
+
+	/** Capsule 使用的半高。Radius 字段作为 Capsule 半径。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect", meta = (ClampMin = "0.0"))
+	float CapsuleHalfHeight = 120.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect", meta = (ClampMin = "0.0"))
+	float HitLocationBackstep = 40.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect", meta = (ClampMin = "0.0", ClampMax = "180.0"))
 	float ConeHalfAngle = 45.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect", meta = (ClampMin = "0.0"))
 	float DamageScale = 1.0f;
+
+	/**
+	 * 是否在当前 SkillNode 内共享命中去重。
+	 *
+	 * false：默认行为。每次 Effect 执行都可以再次命中同一目标，适合多段斩、多次 Hit Notify。
+	 * true：同一个节点里只命中同一目标一次，适合一个长窗口里可能多次触发检测但只想结算一次的技能。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
+	bool bDeduplicateHitsWithinNode = false;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
 	EHitReactType ReactType = EHitReactType::LightHit;
@@ -233,6 +256,12 @@ struct ACTIONGAME_API FActionSkillEffectRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect", meta = (ClampMin = "0.0"))
 	float HatredBonus = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect", meta = (ClampMin = "0.0"))
+	float NoiseLoudness = 1000.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
+	EAINoiseCategory NoiseCategory = EAINoiseCategory::Combat;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
 	FName SpawnCreatureId = NAME_None;

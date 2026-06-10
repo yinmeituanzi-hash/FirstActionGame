@@ -35,6 +35,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Action|VFX")
 	void StopVFXByGroup(FName GroupTag, bool bImmediate = false);
 
+	/** 只停止 FollowSkillLifetime 或显式 bStopOnSkillEnd 的特效，不影响瞬时 / 固定时长特效。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|VFX")
 	void StopSkillLifetimeVFX(FName SkillId);
 

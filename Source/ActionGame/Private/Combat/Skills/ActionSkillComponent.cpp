@@ -5,6 +5,7 @@
 #include "Char/ActionCharacterBase.h"
 #include "Combat/Skills/ActionSkillNode.h"
 #include "Combat/Skills/ActionSkillObject.h"
+#include "Combat/VFX/ActionVFXComponent.h"
 #include "Common/ActionGameplayTags.h"
 #include "Engine/DataTable.h"
 
@@ -196,6 +197,11 @@ void UActionSkillComponent::StopSkill(EActionSkillStopReason Reason)
 
 	if (AActionCharacterBase* OwnerCharacter = GetOwnerCharacter())
 	{
+		if (UActionVFXComponent* VFXComponent = OwnerCharacter->GetActionVFXComponent())
+		{
+			VFXComponent->StopSkillLifetimeVFX(StoppedSkillId);
+		}
+
 		if (!OwnerCharacter->IsDead() && OwnerCharacter->IsInActionState(EActionCharacterState::Skill))
 		{
 			OwnerCharacter->RequestActionState(EActionCharacterState::Idle);
@@ -429,6 +435,8 @@ bool UActionSkillComponent::StartSkillNode(FName NodeId)
 			*NodeId.ToString());
 		return false;
 	}
+
+	CurrentSkillObject->ResetHitActorsThisNode();
 
 	UActionSkillNode* NewNode = NewObject<UActionSkillNode>(this);
 	NewNode->InitFromData(this, CurrentSkillObject, NodeId, *NodeRow, SkillEffectDataTable);

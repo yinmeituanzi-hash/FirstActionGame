@@ -168,6 +168,9 @@ struct ACTIONGAME_API FActionVFXRecord
 	EActionVFXLifetimePolicy LifetimePolicy = EActionVFXLifetimePolicy::AutoDestroy;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|VFX")
+	bool bStopOnSkillEnd = false;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|VFX")
 	float StartTime = 0.0f;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|VFX")

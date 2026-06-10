@@ -26,7 +26,7 @@ public:
 		UActionSkillObject* InSkillObject,
 		FName InNodeId,
 		const FActionSkillNodeRow& InNodeData,
-		UDataTable* SkillEffectDataTable);
+		UDataTable* InSkillEffectDataTable);
 
 	void Activate();
 	void Deactivate();
@@ -36,6 +36,8 @@ public:
 	FName GetNodeId() const { return NodeId; }
 
 	const FActionSkillNodeRow& GetNodeData() const { return NodeData; }
+	FVector GetActivationLocation() const { return ActivationLocation; }
+	FRotator GetActivationRotation() const { return ActivationRotation; }
 
 private:
 	UPROPERTY(Transient)
@@ -51,6 +53,9 @@ private:
 	FActionSkillNodeRow NodeData;
 
 	UPROPERTY(Transient)
+	TObjectPtr<UDataTable> SkillEffectDataTable = nullptr;
+
+	UPROPERTY(Transient)
 	TArray<FName> EffectsWhenEnter;
 
 	UPROPERTY(Transient)
@@ -59,7 +64,9 @@ private:
 	TMap<FName, TArray<FName>> NotifyEffectMap;
 
 	bool bActive = false;
+	FVector ActivationLocation = FVector::ZeroVector;
+	FRotator ActivationRotation = FRotator::ZeroRotator;
 
-	void BuildEffectIndex(UDataTable* SkillEffectDataTable);
+	void BuildEffectIndex(UDataTable* InSkillEffectDataTable);
 	void ExecuteEffects(const TArray<FName>& EffectIds, const FString& TimingText);
 };

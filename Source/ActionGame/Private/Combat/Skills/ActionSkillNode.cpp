@@ -1,6 +1,8 @@
 #include "Combat/Skills/ActionSkillNode.h"
 
+#include "Char/ActionCharacterBase.h"
 #include "Combat/Skills/ActionSkillComponent.h"
+#include "Combat/Skills/ActionSkillEffectLibrary.h"
 #include "Combat/Skills/ActionSkillObject.h"
 #include "Engine/DataTable.h"
 
@@ -11,7 +13,7 @@ void UActionSkillNode::InitFromData(
 	UActionSkillObject* InSkillObject,
 	FName InNodeId,
 	const FActionSkillNodeRow& InNodeData,
-	UDataTable* SkillEffectDataTable)
+	UDataTable* InSkillEffectDataTable)
 {
 	OwnerComponent = InOwnerComponent;
 	SkillObject = InSkillObject;
@@ -21,16 +23,26 @@ void UActionSkillNode::InitFromData(
 	{
 		NodeData.NodeId = InNodeId;
 	}
+	SkillEffectDataTable = InSkillEffectDataTable;
 
 	EffectsWhenEnter.Reset();
 	EffectsWhenLeave.Reset();
 	NotifyEffectMap.Reset();
-	BuildEffectIndex(SkillEffectDataTable);
+	BuildEffectIndex(InSkillEffectDataTable);
 }
 
 void UActionSkillNode::Activate()
 {
 	bActive = true;
+	if (const UActionSkillComponent* SkillComponent = OwnerComponent.Get())
+	{
+		if (const AActionCharacterBase* OwnerCharacter = SkillComponent->GetOwnerCharacter())
+		{
+			ActivationLocation = OwnerCharacter->GetActorLocation();
+			ActivationRotation = OwnerCharacter->GetActorRotation();
+		}
+	}
+
 	ExecuteEffects(EffectsWhenEnter, TEXT("Enter"));
 }
 
@@ -67,9 +79,9 @@ void UActionSkillNode::OnNotify(FName EventName)
 	ExecuteEffects(*EffectIds, FString::Printf(TEXT("Notify:%s"), *EventName.ToString()));
 }
 
-void UActionSkillNode::BuildEffectIndex(UDataTable* SkillEffectDataTable)
+void UActionSkillNode::BuildEffectIndex(UDataTable* InSkillEffectDataTable)
 {
-	if (SkillEffectDataTable == nullptr || SkillEffectDataTable->GetRowStruct() != FActionSkillEffectRow::StaticStruct())
+	if (InSkillEffectDataTable == nullptr || InSkillEffectDataTable->GetRowStruct() != FActionSkillEffectRow::StaticStruct())
 	{
 		return;
 	}
@@ -81,7 +93,7 @@ void UActionSkillNode::BuildEffectIndex(UDataTable* SkillEffectDataTable)
 			continue;
 		}
 
-		const FActionSkillEffectRow* EffectRow = SkillEffectDataTable->FindRow<FActionSkillEffectRow>(EffectId, TEXT("ActionSkillNode.BuildEffectIndex"));
+		const FActionSkillEffectRow* EffectRow = InSkillEffectDataTable->FindRow<FActionSkillEffectRow>(EffectId, TEXT("ActionSkillNode.BuildEffectIndex"));
 		if (EffectRow == nullptr)
 		{
 			UE_LOG(
@@ -120,11 +132,37 @@ void UActionSkillNode::ExecuteEffects(const TArray<FName>& EffectIds, const FStr
 		return;
 	}
 
-	const UActionSkillObject* Skill = SkillObject.Get();
+	UActionSkillComponent* SkillComponent = OwnerComponent.Get();
+	UActionSkillObject* Skill = SkillObject.Get();
 	const FName SkillId = Skill != nullptr ? Skill->GetSkillId() : NAME_None;
+	if (SkillEffectDataTable == nullptr || SkillEffectDataTable->GetRowStruct() != FActionSkillEffectRow::StaticStruct())
+	{
+		UE_LOG(
+			LogActionSkillNode,
+			Warning,
+			TEXT("SkillNode[%s]: cannot execute effects because SkillEffectDataTable is invalid. Skill=%s Timing=%s"),
+			*NodeId.ToString(),
+			*SkillId.ToString(),
+			*TimingText);
+		return;
+	}
+
 	for (const FName EffectId : EffectIds)
 	{
-		// Day3 只打通 Node -> Effect 分派链路。真正的伤害、VFX、投射物会在 Day4 进入 SkillEffect 执行层。
+		const FActionSkillEffectRow* EffectRow = SkillEffectDataTable->FindRow<FActionSkillEffectRow>(EffectId, TEXT("ActionSkillNode.ExecuteEffects"));
+		if (EffectRow == nullptr)
+		{
+			UE_LOG(
+				LogActionSkillNode,
+				Warning,
+				TEXT("SkillNode[%s]: Effect row not found at execution. EffectId=%s Skill=%s Timing=%s"),
+				*NodeId.ToString(),
+				*EffectId.ToString(),
+				*SkillId.ToString(),
+				*TimingText);
+			continue;
+		}
+
 		UE_LOG(
 			LogActionSkillNode,
 			Log,
@@ -133,5 +171,7 @@ void UActionSkillNode::ExecuteEffects(const TArray<FName>& EffectIds, const FStr
 			*EffectId.ToString(),
 			*SkillId.ToString(),
 			*TimingText);
+
+		UActionSkillEffectLibrary::ExecuteEffect(this, SkillComponent, Skill, this, EffectId, *EffectRow);
 	}
 }

@@ -40,6 +40,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|Skill")
 	float GetCooldownRemaining() const { return CooldownRemaining; }
 
+	UFUNCTION(BlueprintPure, Category = "Action|Skill")
+	AActor* GetCurrentTarget() const { return CurrentTarget.Get(); }
+
 	bool CanActivate() const;
 	void Activate(AActor* InTarget);
 	void Deactivate(EActionSkillStopReason Reason);
@@ -47,6 +50,10 @@ public:
 
 	/** 位掩码检查：当前技能配置决定哪些新动作类型可以打断它。 */
 	bool CanBeCancelledBy(EActionSkillCancelFlag IncomingType) const;
+
+	/** 当前技能节点 / 动作段内的命中去重集合，避免同一段动作的多个 Notify 重复结算同一目标。 */
+	TSet<TWeakObjectPtr<AActor>>& GetMutableHitActorsThisNode() { return HitActorsThisNode; }
+	void ResetHitActorsThisNode();
 
 private:
 	UPROPERTY(Transient)
@@ -69,6 +76,8 @@ private:
 
 	UPROPERTY(Transient)
 	TWeakObjectPtr<AActor> CurrentTarget;
+
+	TSet<TWeakObjectPtr<AActor>> HitActorsThisNode;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Skill", meta = (AllowPrivateAccess = "true"))
 	EActionSkillStopReason LastStopReason = EActionSkillStopReason::Normal;
