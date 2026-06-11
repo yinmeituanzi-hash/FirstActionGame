@@ -414,12 +414,11 @@ void UActionSkillComponent::ClearSkillObjects()
 
 bool UActionSkillComponent::StartSkillNode(FName NodeId)
 {
-	StopActiveSkillMontage();
-	DeactivateCurrentSkillNode();
-	ClearActiveSkillWindows(false);
-
 	if (NodeId.IsNone())
 	{
+		StopActiveSkillMontage();
+		DeactivateCurrentSkillNode();
+		ClearActiveSkillWindows(false);
 		UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: skill has no BeginNode."), *GetNameSafe(GetOwner()));
 		return true;
 	}
@@ -433,8 +432,21 @@ bool UActionSkillComponent::StartSkillNode(FName NodeId)
 			TEXT("SkillComponent[%s]: failed to start skill node. NodeId=%s"),
 			*GetNameSafe(GetOwner()),
 			*NodeId.ToString());
+		StopSkill(EActionSkillStopReason::Forced);
 		return false;
 	}
+
+	const bool bWillJumpSection = ActiveSkillMontage != nullptr
+		&& NodeRow->Montage == ActiveSkillMontage
+		&& !NodeRow->StartSection.IsNone();
+
+	if (!bWillJumpSection)
+	{
+		StopActiveSkillMontage();
+	}
+
+	DeactivateCurrentSkillNode();
+	ClearActiveSkillWindows(false);
 
 	CurrentSkillObject->ResetHitActorsThisNode();
 
@@ -489,6 +501,26 @@ bool UActionSkillComponent::PlayCurrentNodeMontage()
 	if (AnimInstance == nullptr)
 	{
 		return false;
+	}
+
+	const bool bSameMontage = ActiveSkillMontage == NodeData.Montage
+		&& AnimInstance->Montage_IsPlaying(ActiveSkillMontage);
+
+	if (bSameMontage && !NodeData.StartSection.IsNone())
+	{
+		AnimInstance->Montage_JumpToSection(NodeData.StartSection, ActiveSkillMontage);
+
+		UE_LOG(
+			LogActionSkill,
+			Log,
+			TEXT("SkillComponent[%s]: JumpToSection. Skill=%s Node=%s Section=%s Montage=%s"),
+			*GetNameSafe(GetOwner()),
+			*GetCurrentSkillId().ToString(),
+			*CurrentSkillNode->GetNodeId().ToString(),
+			*NodeData.StartSection.ToString(),
+			*GetNameSafe(ActiveSkillMontage));
+
+		return true;
 	}
 
 	StopActiveSkillMontage();
