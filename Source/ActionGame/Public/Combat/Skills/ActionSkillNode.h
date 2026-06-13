@@ -13,7 +13,7 @@ class UDataTable;
  * 技能中的一个动作节点。
  *
  * SkillObject 管技能生命周期和冷却；SkillNode 管一次动作段：
- * 播哪个 Montage、进入/离开节点执行哪些效果、某个 AnimNotify 到来时触发哪些效果。
+ * Montage、Enter/Leave 效果、Notify 效果，以及 Day5 新增的连段窗口状态。
  */
 UCLASS(BlueprintType)
 class ACTIONGAME_API UActionSkillNode : public UObject
@@ -32,12 +32,30 @@ public:
 	void Deactivate();
 	void OnNotify(FName EventName);
 
+	/** Combo Notify 打开同技能内的节点跳转窗口。 */
+	void OnNotifyNextCombo(FName InputName, FName HoldType);
+
+	/** Quit Notify 标记当前节点可以自然退出。 */
+	void OnNotifyQuitSkill();
+
+	/** 每帧由 SkillComponent 调用，返回应该跳转的目标 NodeId。 */
+	FName CheckComboTransition();
+
+	void TickByTimeLine();
+	void HandleMontageEndSkillQuit();
+
+	bool ShouldQuitSkill() const { return bQuitSkillFlag; }
+	bool HasValidInput() const;
+
 	UFUNCTION(BlueprintPure, Category = "Action|Skill|Node")
 	FName GetNodeId() const { return NodeId; }
 
 	const FActionSkillNodeRow& GetNodeData() const { return NodeData; }
 	FVector GetActivationLocation() const { return ActivationLocation; }
 	FRotator GetActivationRotation() const { return ActivationRotation; }
+
+	FName GetComboInputName() const { return ComboInputName; }
+	FName GetLastMatchedComboInputName() const { return LastMatchedComboInputName; }
 
 private:
 	UPROPERTY(Transient)
@@ -64,9 +82,16 @@ private:
 	TMap<FName, TArray<FName>> NotifyEffectMap;
 
 	bool bActive = false;
+	bool bCanEnterNextNode = false;
+	bool bQuitSkillFlag = false;
+	FName ComboInputName = NAME_None;
+	FName ComboHoldType = NAME_None;
+	FName LastMatchedComboInputName = NAME_None;
 	FVector ActivationLocation = FVector::ZeroVector;
 	FRotator ActivationRotation = FRotator::ZeroRotator;
 
 	void BuildEffectIndex(UDataTable* InSkillEffectDataTable);
 	void ExecuteEffects(const TArray<FName>& EffectIds, const FString& TimingText);
+	void ResetComboState();
+	bool HasValidBufferedInput(FName InputName) const;
 };

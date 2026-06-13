@@ -172,6 +172,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|AI|Hearing")
 	float GetAttackNoiseLoudness() const { return AttackNoiseLoudness; }
 
+	UFUNCTION(BlueprintPure, Category = "Action|Skill")
+	FName GetNormalAttackSkillId() const { return NormalAttackSkillId; }
+
 	// ---------- 闪避充能查询（旧 API 保持兼容） ----------
 
 	UFUNCTION(BlueprintPure, Category = "Action|Combat|Dodge")
@@ -303,6 +306,10 @@ protected:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Hearing", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
 	float AttackNoiseLoudness = 2500.0f;
+
+	/** Sprint 5 Day5 起，玩家普攻正式走 SkillNode 连段系统，不再走 AttackFeature。 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Skill", meta = (AllowPrivateAccess = "true"))
+	FName NormalAttackSkillId = TEXT("Player_NormalAttack03");
 
 	// ---------- Feature 配置（编辑器里指定子类） ----------
 

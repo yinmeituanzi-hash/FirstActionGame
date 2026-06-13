@@ -79,6 +79,12 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
 	void OnSkillNotify(FName EventName);
 
+	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
+	void OnComboWindowNotify(FName InputName, FName HoldType);
+
+	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
+	void OnQuitSkillNotify();
+
 	/** 检查当前技能是否允许被某类新动作打断。 */
 	UFUNCTION(BlueprintPure, Category = "Action|Skill")
 	bool CheckCanCancelCurrentSkill(EActionSkillCancelFlag IncomingType) const;
@@ -135,11 +141,13 @@ private:
 	void LoadSkillObjectsFromTable();
 	void ClearSkillObjects();
 	bool StartSkillNode(FName NodeId);
+	void TickComboTimeline();
+	void ConsumeComboInput();
 	const FActionSkillNodeRow* FindSkillNodeRow(FName NodeId) const;
 	UAnimInstance* GetOwnerAnimInstance() const;
 	bool PlayCurrentNodeMontage();
 	void StopActiveSkillMontage(float BlendOutTime = -1.0f);
-	void ClearSkillMontageDelegates(UAnimInstance* AnimInstance, UAnimMontage* MontageForEndDelegate);
+	void ClearSkillMontageDelegates(UAnimInstance* AnimInstance);
 	void DeactivateCurrentSkillNode();
 	void ApplyActiveSkillTags(const FActionSkillRow& SkillData);
 	void ClearActiveSkillTags();
@@ -149,9 +157,6 @@ private:
 	void RemoveReleasedBlockCount(FGameplayTag Tag);
 	void ClearActiveSkillWindows(bool bRestoreReleasedBlocks);
 	bool ShouldRestoreReleasedBlock(FGameplayTag Tag) const;
-
-	UFUNCTION()
-	void HandleSkillMontageEnded(UAnimMontage* Montage, bool bInterrupted);
 
 	UFUNCTION()
 	void HandleSkillMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& BranchingPointPayload);

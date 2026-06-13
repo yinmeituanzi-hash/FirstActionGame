@@ -1,10 +1,12 @@
 #include "Combat/Skills/ActionSkillObject.h"
 
 #include "Char/ActionCharacterBase.h"
+#include "Combat/Skills/ActionSkillNode.h"
+#include "Engine/DataTable.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
-// Day1 的 SkillObject 故意保持很小：先为冷却、激活、取消状态建立稳定运行时归属，
-// Montage 节点和效果执行后续再叠加进来。
+DEFINE_LOG_CATEGORY_STATIC(LogActionSkillObject, Log, All);
+
 void UActionSkillObject::InitFromData(AActionCharacterBase* InOwner, FName InSkillId, const FActionSkillRow& InSkillData)
 {
 	OwnerCharacter = InOwner;
@@ -16,6 +18,7 @@ void UActionSkillObject::InitFromData(AActionCharacterBase* InOwner, FName InSki
 	}
 	CooldownRemaining = 0.0f;
 	bActive = false;
+	NodeMap.Reset();
 	bInitialized = InOwner != nullptr && !SkillId.IsNone();
 }
 
@@ -54,22 +57,23 @@ void UActionSkillObject::Activate(AActor* InTarget)
 	bActive = true;
 	CurrentTarget = InTarget;
 	ResetHitActorsThisNode();
+	NodeMap.Reset();
 }
 
 void UActionSkillObject::Deactivate(EActionSkillStopReason Reason)
 {
 	if (!bActive)
 	{
+		NodeMap.Reset();
 		return;
 	}
 
 	bActive = false;
 	CurrentTarget.Reset();
 	ResetHitActorsThisNode();
+	NodeMap.Reset();
 	LastStopReason = Reason;
 
-	// 有些技能被受击打断时不应该进入冷却。这个规则放在配置行里，
-	// 方便之后按技能单独调整。
 	if (Reason != EActionSkillStopReason::HitInterrupt || SkillData.bStartCooldownOnHitInterrupt)
 	{
 		CooldownRemaining = FMath::Max(0.0f, SkillData.Cooldown);
@@ -84,6 +88,43 @@ void UActionSkillObject::TickCooldown(float DeltaTime)
 	}
 }
 
+bool UActionSkillObject::InitSkillNodes(
+	UActionSkillComponent* OwnerComponent,
+	UDataTable* SkillNodeDataTable,
+	UDataTable* SkillEffectDataTable)
+{
+	NodeMap.Reset();
+
+	if (SkillData.BeginNodeId.IsNone())
+	{
+		return true;
+	}
+
+	if (OwnerComponent == nullptr
+		|| SkillNodeDataTable == nullptr
+		|| SkillNodeDataTable->GetRowStruct() != FActionSkillNodeRow::StaticStruct())
+	{
+		UE_LOG(
+			LogActionSkillObject,
+			Warning,
+			TEXT("SkillObject[%s]: cannot init nodes because node table is invalid."),
+			*SkillId.ToString());
+		return false;
+	}
+
+	return InitSkillNodeRecursive(SkillData.BeginNodeId, OwnerComponent, SkillNodeDataTable, SkillEffectDataTable);
+}
+
+UActionSkillNode* UActionSkillObject::GetSkillNode(FName NodeId) const
+{
+	if (const TObjectPtr<UActionSkillNode>* FoundNode = NodeMap.Find(NodeId))
+	{
+		return FoundNode->Get();
+	}
+
+	return nullptr;
+}
+
 bool UActionSkillObject::CanBeCancelledBy(EActionSkillCancelFlag IncomingType) const
 {
 	const int32 IncomingMask = static_cast<int32>(IncomingType);
@@ -93,4 +134,43 @@ bool UActionSkillObject::CanBeCancelledBy(EActionSkillCancelFlag IncomingType) c
 void UActionSkillObject::ResetHitActorsThisNode()
 {
 	HitActorsThisNode.Reset();
+}
+
+bool UActionSkillObject::InitSkillNodeRecursive(
+	FName NodeId,
+	UActionSkillComponent* OwnerComponent,
+	UDataTable* SkillNodeDataTable,
+	UDataTable* SkillEffectDataTable)
+{
+	if (NodeId.IsNone())
+	{
+		return true;
+	}
+
+	if (NodeMap.Contains(NodeId))
+	{
+		return true;
+	}
+
+	const FActionSkillNodeRow* NodeRow = SkillNodeDataTable->FindRow<FActionSkillNodeRow>(
+		NodeId,
+		TEXT("ActionSkillObject.InitSkillNodeRecursive"));
+	if (NodeRow == nullptr)
+	{
+		UE_LOG(
+			LogActionSkillObject,
+			Warning,
+			TEXT("SkillObject[%s]: node row not found. NodeId=%s"),
+			*SkillId.ToString(),
+			*NodeId.ToString());
+		return false;
+	}
+
+	UActionSkillNode* NewNode = NewObject<UActionSkillNode>(this);
+	NewNode->InitFromData(OwnerComponent, this, NodeId, *NodeRow, SkillEffectDataTable);
+	NodeMap.Add(NodeId, NewNode);
+
+	const bool bNextOk = InitSkillNodeRecursive(NodeRow->NextNodeId, OwnerComponent, SkillNodeDataTable, SkillEffectDataTable);
+	const bool bBranchOk = InitSkillNodeRecursive(NodeRow->BranchNodeId, OwnerComponent, SkillNodeDataTable, SkillEffectDataTable);
+	return bNextOk && bBranchOk;
 }

@@ -1,10 +1,13 @@
 #include "Combat/Skills/ActionSkillNode.h"
 
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
 #include "Char/ActionCharacterBase.h"
 #include "Combat/Skills/ActionSkillComponent.h"
 #include "Combat/Skills/ActionSkillEffectLibrary.h"
 #include "Combat/Skills/ActionSkillObject.h"
 #include "Engine/DataTable.h"
+#include "Input/InputBufferComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogActionSkillNode, Log, All);
 
@@ -28,12 +31,15 @@ void UActionSkillNode::InitFromData(
 	EffectsWhenEnter.Reset();
 	EffectsWhenLeave.Reset();
 	NotifyEffectMap.Reset();
+	ResetComboState();
 	BuildEffectIndex(InSkillEffectDataTable);
 }
 
 void UActionSkillNode::Activate()
 {
 	bActive = true;
+	ResetComboState();
+
 	if (const UActionSkillComponent* SkillComponent = OwnerComponent.Get())
 	{
 		if (const AActionCharacterBase* OwnerCharacter = SkillComponent->GetOwnerCharacter())
@@ -48,13 +54,13 @@ void UActionSkillNode::Activate()
 
 void UActionSkillNode::Deactivate()
 {
-	if (!bActive)
+	if (bActive)
 	{
-		return;
+		ExecuteEffects(EffectsWhenLeave, TEXT("Leave"));
+		bActive = false;
 	}
 
-	ExecuteEffects(EffectsWhenLeave, TEXT("Leave"));
-	bActive = false;
+	ResetComboState();
 }
 
 void UActionSkillNode::OnNotify(FName EventName)
@@ -79,6 +85,101 @@ void UActionSkillNode::OnNotify(FName EventName)
 	ExecuteEffects(*EffectIds, FString::Printf(TEXT("Notify:%s"), *EventName.ToString()));
 }
 
+void UActionSkillNode::OnNotifyNextCombo(FName InputName, FName HoldType)
+{
+	bCanEnterNextNode = true;
+	ComboInputName = InputName;
+	ComboHoldType = HoldType;
+	LastMatchedComboInputName = NAME_None;
+
+	UE_LOG(
+		LogActionSkillNode,
+		Verbose,
+		TEXT("SkillNode[%s]: combo window opened. Input=%s Hold=%s Next=%s Branch=%s"),
+		*NodeId.ToString(),
+		*ComboInputName.ToString(),
+		*ComboHoldType.ToString(),
+		*NodeData.NextNodeId.ToString(),
+		*NodeData.BranchNodeId.ToString());
+}
+
+void UActionSkillNode::OnNotifyQuitSkill()
+{
+	bQuitSkillFlag = true;
+}
+
+FName UActionSkillNode::CheckComboTransition()
+{
+	LastMatchedComboInputName = NAME_None;
+
+	if (!bCanEnterNextNode)
+	{
+		return NAME_None;
+	}
+
+	if (!NodeData.BranchNodeId.IsNone() && !ComboHoldType.IsNone() && HasValidBufferedInput(ComboHoldType))
+	{
+		LastMatchedComboInputName = ComboHoldType;
+		return NodeData.BranchNodeId;
+	}
+
+	if (!NodeData.NextNodeId.IsNone() && HasValidBufferedInput(ComboInputName))
+	{
+		LastMatchedComboInputName = ComboInputName;
+		return NodeData.NextNodeId;
+	}
+
+	// 没有显式 HoldType 时，BranchNodeId 作为 010 ExtraNextNodeId 风格的无输入备用节点。
+	if (!NodeData.BranchNodeId.IsNone() && ComboHoldType.IsNone() && !HasValidBufferedInput(ComboInputName))
+	{
+		return NodeData.BranchNodeId;
+	}
+
+	return NAME_None;
+}
+
+void UActionSkillNode::TickByTimeLine()
+{
+	HandleMontageEndSkillQuit();
+}
+
+void UActionSkillNode::HandleMontageEndSkillQuit()
+{
+	if (!bActive || bQuitSkillFlag || NodeData.Montage == nullptr)
+	{
+		return;
+	}
+
+	const UActionSkillComponent* SkillComponent = OwnerComponent.Get();
+	const AActionCharacterBase* OwnerCharacter = SkillComponent != nullptr ? SkillComponent->GetOwnerCharacter() : nullptr;
+	UAnimInstance* AnimInstance = OwnerCharacter != nullptr && OwnerCharacter->GetMesh() != nullptr
+		? OwnerCharacter->GetMesh()->GetAnimInstance()
+		: nullptr;
+	if (AnimInstance == nullptr)
+	{
+		return;
+	}
+
+	if (AnimInstance->Montage_IsPlaying(NodeData.Montage))
+	{
+		return;
+	}
+
+	bQuitSkillFlag = true;
+	UE_LOG(
+		LogActionSkillNode,
+		Verbose,
+		TEXT("SkillNode[%s]: montage stopped playing, mark QuitSkill. Montage=%s"),
+		*NodeId.ToString(),
+		*GetNameSafe(NodeData.Montage));
+}
+
+bool UActionSkillNode::HasValidInput() const
+{
+	return HasValidBufferedInput(ComboInputName)
+		|| (!ComboHoldType.IsNone() && HasValidBufferedInput(ComboHoldType));
+}
+
 void UActionSkillNode::BuildEffectIndex(UDataTable* InSkillEffectDataTable)
 {
 	if (InSkillEffectDataTable == nullptr || InSkillEffectDataTable->GetRowStruct() != FActionSkillEffectRow::StaticStruct())
@@ -93,7 +194,9 @@ void UActionSkillNode::BuildEffectIndex(UDataTable* InSkillEffectDataTable)
 			continue;
 		}
 
-		const FActionSkillEffectRow* EffectRow = InSkillEffectDataTable->FindRow<FActionSkillEffectRow>(EffectId, TEXT("ActionSkillNode.BuildEffectIndex"));
+		const FActionSkillEffectRow* EffectRow = InSkillEffectDataTable->FindRow<FActionSkillEffectRow>(
+			EffectId,
+			TEXT("ActionSkillNode.BuildEffectIndex"));
 		if (EffectRow == nullptr)
 		{
 			UE_LOG(
@@ -149,7 +252,9 @@ void UActionSkillNode::ExecuteEffects(const TArray<FName>& EffectIds, const FStr
 
 	for (const FName EffectId : EffectIds)
 	{
-		const FActionSkillEffectRow* EffectRow = SkillEffectDataTable->FindRow<FActionSkillEffectRow>(EffectId, TEXT("ActionSkillNode.ExecuteEffects"));
+		const FActionSkillEffectRow* EffectRow = SkillEffectDataTable->FindRow<FActionSkillEffectRow>(
+			EffectId,
+			TEXT("ActionSkillNode.ExecuteEffects"));
 		if (EffectRow == nullptr)
 		{
 			UE_LOG(
@@ -174,4 +279,29 @@ void UActionSkillNode::ExecuteEffects(const TArray<FName>& EffectIds, const FStr
 
 		UActionSkillEffectLibrary::ExecuteEffect(this, SkillComponent, Skill, this, EffectId, *EffectRow);
 	}
+}
+
+void UActionSkillNode::ResetComboState()
+{
+	bCanEnterNextNode = false;
+	bQuitSkillFlag = false;
+	ComboInputName = NAME_None;
+	ComboHoldType = NAME_None;
+	LastMatchedComboInputName = NAME_None;
+}
+
+bool UActionSkillNode::HasValidBufferedInput(FName InputName) const
+{
+	if (InputName.IsNone())
+	{
+		return false;
+	}
+
+	const UActionSkillComponent* SkillComponent = OwnerComponent.Get();
+	const AActionCharacterBase* OwnerCharacter = SkillComponent != nullptr ? SkillComponent->GetOwnerCharacter() : nullptr;
+	const UInputBufferComponent* InputBuffer = OwnerCharacter != nullptr
+		? OwnerCharacter->FindComponentByClass<UInputBufferComponent>()
+		: nullptr;
+
+	return InputBuffer != nullptr && InputBuffer->HasValidInput(InputName);
 }

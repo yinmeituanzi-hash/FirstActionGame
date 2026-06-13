@@ -8,6 +8,7 @@
 #include "Combat/VFX/ActionVFXComponent.h"
 #include "Common/ActionGameplayTags.h"
 #include "Engine/DataTable.h"
+#include "Input/InputBufferComponent.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogActionSkill, Log, All);
 
@@ -87,6 +88,8 @@ void UActionSkillComponent::TickComponent(float DeltaTime, ELevelTick TickType, 
 			Pair.Value->TickCooldown(DeltaTime);
 		}
 	}
+
+	TickComboTimeline();
 }
 
 AActionCharacterBase* UActionSkillComponent::GetOwnerCharacter() const
@@ -164,6 +167,18 @@ bool UActionSkillComponent::UseSkill(FName SkillId, AActor* OptionalTarget, EAct
 		return false;
 	}
 
+	if (!SkillObject->InitSkillNodes(this, SkillNodeDataTable, SkillEffectDataTable))
+	{
+		SkillObject->Deactivate(EActionSkillStopReason::Forced);
+		UE_LOG(
+			LogActionSkill,
+			Warning,
+			TEXT("SkillComponent[%s]: UseSkill failed because node map init failed. SkillId=%s"),
+			*GetNameSafe(GetOwner()),
+			*SkillId.ToString());
+		return false;
+	}
+
 	CurrentSkillObject = SkillObject;
 	ApplyActiveSkillTags(SkillObject->GetSkillData());
 
@@ -226,6 +241,26 @@ void UActionSkillComponent::OnSkillNotify(FName EventName)
 	{
 		CurrentSkillNode->OnNotify(EventName);
 	}
+}
+
+void UActionSkillComponent::OnComboWindowNotify(FName InputName, FName HoldType)
+{
+	if (CurrentSkillNode == nullptr)
+	{
+		return;
+	}
+
+	CurrentSkillNode->OnNotifyNextCombo(InputName, HoldType);
+}
+
+void UActionSkillComponent::OnQuitSkillNotify()
+{
+	if (CurrentSkillNode == nullptr)
+	{
+		return;
+	}
+
+	CurrentSkillNode->OnNotifyQuitSkill();
 }
 
 bool UActionSkillComponent::CheckCanCancelCurrentSkill(EActionSkillCancelFlag IncomingType) const
@@ -424,14 +459,17 @@ bool UActionSkillComponent::StartSkillNode(FName NodeId)
 	}
 
 	const FActionSkillNodeRow* NodeRow = FindSkillNodeRow(NodeId);
-	if (NodeRow == nullptr || CurrentSkillObject == nullptr)
+	UActionSkillNode* TargetNode = CurrentSkillObject != nullptr ? CurrentSkillObject->GetSkillNode(NodeId) : nullptr;
+	if (NodeRow == nullptr || CurrentSkillObject == nullptr || TargetNode == nullptr)
 	{
 		UE_LOG(
 			LogActionSkill,
 			Warning,
-			TEXT("SkillComponent[%s]: failed to start skill node. NodeId=%s"),
+			TEXT("SkillComponent[%s]: failed to start skill node. NodeId=%s NodeRow=%s NodeObject=%s"),
 			*GetNameSafe(GetOwner()),
-			*NodeId.ToString());
+			*NodeId.ToString(),
+			NodeRow != nullptr ? TEXT("Valid") : TEXT("None"),
+			TargetNode != nullptr ? TEXT("Valid") : TEXT("None"));
 		StopSkill(EActionSkillStopReason::Forced);
 		return false;
 	}
@@ -450,9 +488,7 @@ bool UActionSkillComponent::StartSkillNode(FName NodeId)
 
 	CurrentSkillObject->ResetHitActorsThisNode();
 
-	UActionSkillNode* NewNode = NewObject<UActionSkillNode>(this);
-	NewNode->InitFromData(this, CurrentSkillObject, NodeId, *NodeRow, SkillEffectDataTable);
-	CurrentSkillNode = NewNode;
+	CurrentSkillNode = TargetNode;
 	CurrentSkillNode->Activate();
 
 	if (!PlayCurrentNodeMontage())
@@ -466,6 +502,52 @@ bool UActionSkillComponent::StartSkillNode(FName NodeId)
 	}
 
 	return true;
+}
+
+void UActionSkillComponent::TickComboTimeline()
+{
+	if (CurrentSkillObject == nullptr || CurrentSkillNode == nullptr)
+	{
+		return;
+	}
+
+	const FName NextNodeId = CurrentSkillNode->CheckComboTransition();
+	if (!NextNodeId.IsNone())
+	{
+		ConsumeComboInput();
+		StartSkillNode(NextNodeId);
+		return;
+	}
+
+	CurrentSkillNode->TickByTimeLine();
+
+	if (CurrentSkillNode != nullptr && CurrentSkillNode->ShouldQuitSkill())
+	{
+		StopSkill(EActionSkillStopReason::Normal);
+	}
+}
+
+void UActionSkillComponent::ConsumeComboInput()
+{
+	if (CurrentSkillNode == nullptr)
+	{
+		return;
+	}
+
+	const FName InputName = CurrentSkillNode->GetLastMatchedComboInputName();
+	if (InputName.IsNone())
+	{
+		return;
+	}
+
+	AActionCharacterBase* OwnerCharacter = GetOwnerCharacter();
+	UInputBufferComponent* InputBuffer = OwnerCharacter != nullptr
+		? OwnerCharacter->FindComponentByClass<UInputBufferComponent>()
+		: nullptr;
+	if (InputBuffer != nullptr)
+	{
+		InputBuffer->ConsumeInput(InputName);
+	}
 }
 
 const FActionSkillNodeRow* UActionSkillComponent::FindSkillNodeRow(FName NodeId) const
@@ -503,10 +585,10 @@ bool UActionSkillComponent::PlayCurrentNodeMontage()
 		return false;
 	}
 
-	const bool bSameMontage = ActiveSkillMontage == NodeData.Montage
-		&& AnimInstance->Montage_IsPlaying(ActiveSkillMontage);
+	const bool bSameActiveMontage = ActiveSkillMontage == NodeData.Montage
+		&& AnimInstance->Montage_IsActive(ActiveSkillMontage);
 
-	if (bSameMontage && !NodeData.StartSection.IsNone())
+	if (bSameActiveMontage && !NodeData.StartSection.IsNone())
 	{
 		AnimInstance->Montage_JumpToSection(NodeData.StartSection, ActiveSkillMontage);
 
@@ -537,10 +619,6 @@ bool UActionSkillComponent::PlayCurrentNodeMontage()
 		AnimInstance->Montage_JumpToSection(NodeData.StartSection, ActiveSkillMontage);
 	}
 
-	FOnMontageEnded EndedDelegate;
-	EndedDelegate.BindUObject(this, &UActionSkillComponent::HandleSkillMontageEnded);
-	AnimInstance->Montage_SetEndDelegate(EndedDelegate, ActiveSkillMontage);
-
 	AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &UActionSkillComponent::HandleSkillMontageNotifyBegin);
 	AnimInstance->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &UActionSkillComponent::HandleSkillMontageNotifyBegin);
 
@@ -567,7 +645,7 @@ void UActionSkillComponent::StopActiveSkillMontage(float BlendOutTime)
 	}
 
 	UAnimMontage* MontageToStop = ActiveSkillMontage;
-	ClearSkillMontageDelegates(AnimInstance, MontageToStop);
+	ClearSkillMontageDelegates(AnimInstance);
 	ActiveSkillMontage = nullptr;
 
 	if (AnimInstance->Montage_IsPlaying(MontageToStop))
@@ -579,17 +657,11 @@ void UActionSkillComponent::StopActiveSkillMontage(float BlendOutTime)
 	}
 }
 
-void UActionSkillComponent::ClearSkillMontageDelegates(UAnimInstance* AnimInstance, UAnimMontage* MontageForEndDelegate)
+void UActionSkillComponent::ClearSkillMontageDelegates(UAnimInstance* AnimInstance)
 {
 	if (AnimInstance == nullptr)
 	{
 		return;
-	}
-
-	if (MontageForEndDelegate != nullptr)
-	{
-		FOnMontageEnded EmptyEndedDelegate;
-		AnimInstance->Montage_SetEndDelegate(EmptyEndedDelegate, MontageForEndDelegate);
 	}
 
 	AnimInstance->OnPlayMontageNotifyBegin.RemoveDynamic(this, &UActionSkillComponent::HandleSkillMontageNotifyBegin);
@@ -764,29 +836,6 @@ void UActionSkillComponent::ClearActiveSkillWindows(bool bRestoreReleasedBlocks)
 bool UActionSkillComponent::ShouldRestoreReleasedBlock(FGameplayTag Tag) const
 {
 	return CurrentSkillObject != nullptr && ActiveSkillAppliedTags.HasTagExact(Tag);
-}
-
-void UActionSkillComponent::HandleSkillMontageEnded(UAnimMontage* Montage, bool bInterrupted)
-{
-	if (Montage == nullptr || Montage != ActiveSkillMontage)
-	{
-		return;
-	}
-
-	UAnimInstance* AnimInstance = GetOwnerAnimInstance();
-	ClearSkillMontageDelegates(AnimInstance, Montage);
-	ActiveSkillMontage = nullptr;
-
-	const EActionSkillStopReason Reason = bInterrupted ? EActionSkillStopReason::Forced : EActionSkillStopReason::Normal;
-	UE_LOG(
-		LogActionSkill,
-		Log,
-		TEXT("SkillComponent[%s]: skill montage ended. Montage=%s Interrupted=%s"),
-		*GetNameSafe(GetOwner()),
-		*GetNameSafe(Montage),
-		bInterrupted ? TEXT("true") : TEXT("false"));
-
-	StopSkill(Reason);
 }
 
 void UActionSkillComponent::HandleSkillMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& /*BranchingPointPayload*/)

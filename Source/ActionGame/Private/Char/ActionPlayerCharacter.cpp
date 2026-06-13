@@ -5,7 +5,6 @@
 #include "Animation/AnimMontage.h"
 #include "Camera/CameraComponent.h"
 #include "Combat/ActionFeatures/ActionFeatureBase.h"
-#include "Combat/ActionFeatures/AttackFeature.h"
 #include "Combat/ActionFeatures/DodgeFeature.h"
 #include "Combat/ActionFeatures/NormalJumpFeature.h"
 #include "Combat/Skills/ActionSkillComponent.h"
@@ -115,7 +114,7 @@ AActionPlayerCharacter::AActionPlayerCharacter(const FObjectInitializer& ObjectI
 	HitFeedbackComponent = CreateDefaultSubobject<UHitFeedbackComponent>(TEXT("HitFeedbackComponent"));
 
 	// ---------- Feature 默认子类（蓝图可覆盖）----------
-	AttackFeatureClass = UAttackFeature::StaticClass();
+	AttackFeatureClass = nullptr;
 	DodgeFeatureClass = UDodgeFeature::StaticClass();
 	JumpFeatureClass = UNormalJumpFeature::StaticClass();
 }
@@ -442,36 +441,43 @@ void AActionPlayerCharacter::OnAttackInput()
 		InputBufferComponent->PushInput(ActionPlayerInputNames::Attack, InputBufferLifetime);
 	}
 
-	if (AttackFeature == nullptr)
+	UActionSkillComponent* SkillComp = GetActionSkillComponent();
+	if (SkillComp == nullptr || NormalAttackSkillId.IsNone())
 	{
+		UE_LOG(LogActionPlayerCharacter, Warning, TEXT("ActionPlayerCharacter: NormalAttack skill is not configured."));
 		return;
 	}
 
-	if (!TryCancelCurrentSkillForInput(EActionSkillCancelFlag::NormalAttack, EActionSkillStopReason::SkillCancel))
+	if (SkillComp->IsUsingSkill())
 	{
-		return;
+		if (SkillComp->GetCurrentSkillId() == NormalAttackSkillId)
+		{
+			// 已在普攻技能中：保留输入，交给 ComboWindow 消费。
+			return;
+		}
+
+		if (!TryCancelCurrentSkillForInput(EActionSkillCancelFlag::NormalAttack, EActionSkillStopReason::SkillCancel))
+		{
+			return;
+		}
 	}
 
-	// Sprint 5 过渡期：普攻仍临时走 AttackFeature。
-	// Day5 / Day6 后普攻连段会迁入 SkillNode，完成后这里应改为 UseSkill(普攻 SkillId)，并删除 AttackFeature。
-	// 已经在攻击中：尝试连段。
-	if (AttackFeature->IsActive())
+	if (SkillComp->UseSkill(NormalAttackSkillId, nullptr, EActionSkillCancelFlag::NormalAttack))
 	{
-		if (AttackFeature->TryAdvanceCombo())
+		// 首段启动后消费本次输入，避免同一次点击在 ComboWindow 打开时又触发下一段。
+		if (InputBufferComponent != nullptr)
 		{
 			InputBufferComponent->ConsumeInput(ActionPlayerInputNames::Attack);
 		}
 		return;
 	}
 
-	// 未在攻击中：尝试启动第一段。
-	if (AttackFeature->CanExecute())
-	{
-		InputBufferComponent->ConsumeInput(ActionPlayerInputNames::Attack);
-		AttackFeature->Execute();
-	}
+	UE_LOG(
+		LogActionPlayerCharacter,
+		Warning,
+		TEXT("ActionPlayerCharacter: failed to start NormalAttack skill. SkillId=%s"),
+		*NormalAttackSkillId.ToString());
 }
-
 void AActionPlayerCharacter::OnDodgeInput()
 {
 	UE_LOG(LogActionPlayerCharacter, Log, TEXT("ActionPlayerCharacter: OnDodgeInput."));
@@ -578,11 +584,7 @@ void AActionPlayerCharacter::InitializeFeatures()
 {
 	Features.Reset();
 
-	if (AttackFeatureClass != nullptr)
-	{
-		AttackFeature = Cast<UAttackFeature>(CreateFeatureInstance(AttackFeatureClass));
-		if (AttackFeature != nullptr) { Features.Add(AttackFeature); }
-	}
+	AttackFeature = nullptr;
 
 	if (DodgeFeatureClass != nullptr)
 	{
@@ -654,13 +656,13 @@ void AActionPlayerCharacter::ClearCurrentActiveFeature(UActionFeatureBase* InFea
 				DodgeFeature->Execute();
 				return;
 			}
+			UActionSkillComponent* SkillComp = GetActionSkillComponent();
 			if (InputBufferComponent->HasValidInput(ActionPlayerInputNames::Attack)
-				&& AttackFeature != nullptr
-				&& TryCancelCurrentSkillForInput(EActionSkillCancelFlag::NormalAttack, EActionSkillStopReason::SkillCancel)
-				&& AttackFeature->CanExecute())
+				&& SkillComp != nullptr
+				&& !NormalAttackSkillId.IsNone()
+				&& SkillComp->UseSkill(NormalAttackSkillId, nullptr, EActionSkillCancelFlag::NormalAttack))
 			{
 				InputBufferComponent->ConsumeInput(ActionPlayerInputNames::Attack);
-				AttackFeature->Execute();
 				return;
 			}
 		}
