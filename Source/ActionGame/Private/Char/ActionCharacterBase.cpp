@@ -1,12 +1,14 @@
 #include "Char/ActionCharacterBase.h"
+
 #include "Animation/AnimInstance.h"
 #include "Char/ActionCharacterMovementComponent.h"
-#include "Combat/Skills/ActionSkillComponent.h"
-#include "Combat/VFX/ActionVFXComponent.h"
+#include "Combat/Attributes/ActionAttributeComponent.h"
 #include "Combat/HitReact/HitPhysicsComponent.h"
 #include "Combat/HitReact/HitReactComponent.h"
 #include "Combat/HitReact/HitReactTypes.h"
 #include "Combat/HitReact/HitReceiverComponent.h"
+#include "Combat/Skills/ActionSkillComponent.h"
+#include "Combat/VFX/ActionVFXComponent.h"
 #include "Common/ActionGameplayTags.h"
 #include "Components/CapsuleComponent.h"
 #include "GameFramework/CharacterMovementComponent.h"
@@ -16,16 +18,15 @@ AActionCharacterBase::AActionCharacterBase(const FObjectInitializer& ObjectIniti
 {
 	PrimaryActorTick.bCanEverTick = false;
 
-	// 这里先给一个稳定的默认胶囊体尺寸，后续换模型时再按实际角色体型调整。
+	// 这里先给一个稳定的默认胶囊体尺寸，后续换模型时再按角色体型调整。
 	GetCapsuleComponent()->InitCapsuleSize(42.0f, 96.0f);
 
-	// 迁移初期先沿用第三人称动作游戏常见的移动朝向配置。
+	// 第三人称动作游戏常用的移动朝向配置。
 	bUseControllerRotationPitch = false;
 	bUseControllerRotationYaw = false;
 	bUseControllerRotationRoll = false;
 
 	UCharacterMovementComponent* MovementComponent = GetCharacterMovement();
-	// 动态生成的测试怪/训练假人可能没有 Controller，但受击 Montage Root Motion 仍然需要移动物理推进胶囊体。
 	MovementComponent->bRunPhysicsWithNoController = true;
 	MovementComponent->bOrientRotationToMovement = true;
 	MovementComponent->RotationRate = FRotator(0.0f, 500.0f, 0.0f);
@@ -36,23 +37,11 @@ AActionCharacterBase::AActionCharacterBase(const FObjectInitializer& ObjectIniti
 	MovementComponent->BrakingDecelerationWalking = 2000.0f;
 	MovementComponent->BrakingDecelerationFalling = 1500.0f;
 
-	// 说明：
-	// ACharacter 自带一个叫 Mesh 的骨骼网格组件，所以我们不用自己再创建“角色身体组件”。
-	// 以后在 BP_ActionPlayerCharacter / BP_ActionMonsterCharacter 里看到的 Mesh，就是从这里继承下来的。
-
-	// 受击调度组件：所有角色共用同一套受击入口，统一走三层调度（Feedback / React / Physics）。
+	AttributeComponent = CreateDefaultSubobject<UActionAttributeComponent>(TEXT("ActionAttributeComponent"));
 	HitReceiverComponent = CreateDefaultSubobject<UHitReceiverComponent>(TEXT("HitReceiverComponent"));
-
-	// 受击动画反应组件：玩家和怪物各自在 BP 里指向不同 DataTable，但 C++ 创建在基类。
 	HitReactComponent = CreateDefaultSubobject<UHitReactComponent>(TEXT("HitReactComponent"));
-
-	// 受击物理组件：Day 5 先接 HitFly 击飞位移，Day 6 再扩展 Ragdoll / GetUp。
 	HitPhysicsComponent = CreateDefaultSubobject<UHitPhysicsComponent>(TEXT("HitPhysicsComponent"));
-
-	// 技能系统入口：Day1 先加载 DataTable 并创建持久型 SkillObjectMap。
 	SkillComponent = CreateDefaultSubobject<UActionSkillComponent>(TEXT("SkillComponent"));
-
-	// 特效播放门面：角色侧只保存句柄，真正播放和登记由 UActionVFXSubsystem 负责。
 	VFXComponent = CreateDefaultSubobject<UActionVFXComponent>(TEXT("ActionVFXComponent"));
 }
 
@@ -60,14 +49,18 @@ void AActionCharacterBase::BeginPlay()
 {
 	Super::BeginPlay();
 
+	if (AttributeComponent != nullptr)
+	{
+		AttributeComponent->OnAttributeChanged.AddUniqueDynamic(this, &AActionCharacterBase::HandleAttributeChanged);
+		AttributeComponent->InitializeAttributesFromDefaults();
+	}
+
 	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
 	{
 		// 所有战斗角色都可能通过 Montage 播放攻击、闪避、受击等 Root Motion 动作。
-		// 放在基类里统一初始化，避免怪物只播受击动画但不应用位移。
 		MovementComponent->bAllowPhysicsRotationDuringAnimRootMotion = true;
-		if (!IsDead() && CurrentHP > 0.0f && MovementComponent->MovementMode == MOVE_None)
+		if (!IsDead() && GetCurrentHP() > 0.0f && MovementComponent->MovementMode == MOVE_None)
 		{
-			// 无 Controller 的怪物开局可能停在 MOVE_None；此时动画 Root Motion 会被提取，但不会交给移动组件应用。
 			MovementComponent->SetMovementMode(MOVE_Walking);
 		}
 	}
@@ -78,9 +71,6 @@ void AActionCharacterBase::BeginPlay()
 		AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromMontagesOnly);
 	}
 
-	// 运行开始时做一次保护，避免在编辑器里把 CurrentHP 改成无效值后直接带入运行时。
-	MaxHP = FMath::Max(MaxHP, 1.0f);
-	CurrentHP = FMath::Clamp(CurrentHP, 0.0f, MaxHP);
 	SetActionState(bIsDead ? EActionCharacterState::Dead : EActionCharacterState::Idle);
 }
 
@@ -103,15 +93,20 @@ void AActionCharacterBase::RequestActionState(EActionCharacterState InState)
 
 void AActionCharacterBase::ApplyDamage(float InDamage)
 {
-	if (IsDead())
+	if (IsDead() || AttributeComponent == nullptr)
 	{
 		return;
 	}
 
 	const float ActualDamage = FMath::Max(InDamage, 0.0f);
-	CurrentHP = FMath::Clamp(CurrentHP - ActualDamage, 0.0f, MaxHP);
+	if (ActualDamage <= 0.0f)
+	{
+		return;
+	}
 
-	if (CurrentHP <= 0.0f)
+	AttributeComponent->ModifyAttribute(EActionAttributeType::HP, -ActualDamage);
+
+	if (GetCurrentHP() <= 0.0f)
 	{
 		Die();
 	}
@@ -124,11 +119,9 @@ void AActionCharacterBase::ReceiveHit(const FHitContext& HitCtx)
 		return;
 	}
 
-	// 第一步：扣血。无论受击表现是否被霸体屏蔽，伤害都要正常结算。
+	// 伤害结算先发生；表现层是否被霸体屏蔽，不影响扣血。
 	ApplyDamage(HitCtx.DamageAmount);
 
-	// 第二步：交给 HitReceiver 做表现/动画/物理三层调度。
-	// 死亡后 Receiver 会自己 short-circuit，不需要在这里多加判断。
 	if (HitReceiverComponent != nullptr)
 	{
 		HitReceiverComponent->ReceiveHit(HitCtx);
@@ -143,7 +136,10 @@ void AActionCharacterBase::Die()
 	}
 
 	bIsDead = true;
-	CurrentHP = 0.0f;
+	if (AttributeComponent != nullptr)
+	{
+		AttributeComponent->SetAttribute(EActionAttributeType::HP, 0.0f);
+	}
 
 	if (SkillComponent != nullptr && SkillComponent->IsUsingSkill())
 	{
@@ -152,8 +148,6 @@ void AActionCharacterBase::Die()
 
 	SetActionState(EActionCharacterState::Dead);
 
-	// Day 2 先只做最小死亡状态：
-	// 停止移动并关闭碰撞，确保后续接入怪物死亡时不会继续参与交互。
 	if (UCharacterMovementComponent* MovementComponent = GetCharacterMovement())
 	{
 		MovementComponent->DisableMovement();
@@ -165,6 +159,26 @@ void AActionCharacterBase::Die()
 UActionCharacterMovementComponent* AActionCharacterBase::GetActionCharacterMovement() const
 {
 	return Cast<UActionCharacterMovementComponent>(GetCharacterMovement());
+}
+
+float AActionCharacterBase::GetCurrentHP() const
+{
+	return GetActionAttribute(EActionAttributeType::HP);
+}
+
+float AActionCharacterBase::GetMaxHP() const
+{
+	return GetActionAttribute(EActionAttributeType::MaxHP);
+}
+
+float AActionCharacterBase::GetAttackPower() const
+{
+	return GetActionAttribute(EActionAttributeType::AttackPower);
+}
+
+float AActionCharacterBase::GetActionAttribute(EActionAttributeType Attribute) const
+{
+	return AttributeComponent != nullptr ? AttributeComponent->GetAttribute(Attribute) : 0.0f;
 }
 
 bool AActionCharacterBase::IsDead() const
@@ -298,6 +312,17 @@ void AActionCharacterBase::SetActionState(EActionCharacterState NewState)
 	CurrentActionState = NewState;
 	OnActionStateEnter(OldState, NewState);
 	OnActionStateChanged.Broadcast(OldState, NewState);
+}
+
+void AActionCharacterBase::HandleAttributeChanged(EActionAttributeType Attribute, float OldValue, float NewValue)
+{
+	(void)OldValue;
+
+	// 外部系统直接把 HP 改到 0 时，也必须进入角色统一死亡流程。
+	if (Attribute == EActionAttributeType::HP && NewValue <= 0.0f && !IsDead())
+	{
+		Die();
+	}
 }
 
 void AActionCharacterBase::AddActionTag(FGameplayTag Tag)
