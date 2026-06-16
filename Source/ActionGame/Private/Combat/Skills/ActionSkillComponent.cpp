@@ -3,6 +3,8 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Char/ActionCharacterBase.h"
+#include "Char/ActionPlayerCharacter.h"
+#include "Combat/Components/ActionCombatComponent.h"
 #include "Combat/Skills/ActionSkillNode.h"
 #include "Combat/Skills/ActionSkillObject.h"
 #include "Combat/VFX/ActionVFXComponent.h"
@@ -263,6 +265,16 @@ void UActionSkillComponent::OnQuitSkillNotify()
 	CurrentSkillNode->OnNotifyQuitSkill();
 }
 
+void UActionSkillComponent::OnTurnWindowNotify()
+{
+	if (CurrentSkillNode == nullptr)
+	{
+		return;
+	}
+
+	CurrentSkillNode->OnNotifyTurnWindow();
+}
+
 bool UActionSkillComponent::CheckCanCancelCurrentSkill(EActionSkillCancelFlag IncomingType) const
 {
 	if (CurrentSkillObject == nullptr)
@@ -477,12 +489,14 @@ bool UActionSkillComponent::StartSkillNode(FName NodeId)
 	const bool bWillJumpSection = ActiveSkillMontage != nullptr
 		&& NodeRow->Montage == ActiveSkillMontage
 		&& !NodeRow->StartSection.IsNone();
+	const UActionSkillNode* PreviousNode = CurrentSkillNode;
 
 	if (!bWillJumpSection)
 	{
 		StopActiveSkillMontage();
 	}
 
+	ApplyTurnAtNodeStart(PreviousNode);
 	DeactivateCurrentSkillNode();
 	ClearActiveSkillWindows(false);
 
@@ -502,6 +516,38 @@ bool UActionSkillComponent::StartSkillNode(FName NodeId)
 	}
 
 	return true;
+}
+
+void UActionSkillComponent::ApplyTurnAtNodeStart(const UActionSkillNode* PreviousNode)
+{
+	if (PreviousNode == nullptr || !PreviousNode->CanTurnNextNode())
+	{
+		return;
+	}
+
+	AActionPlayerCharacter* PlayerOwner = Cast<AActionPlayerCharacter>(GetOwnerCharacter());
+	if (PlayerOwner == nullptr)
+	{
+		return;
+	}
+
+	UActionCombatComponent* CombatComp = PlayerOwner->GetActionCombatComponent();
+	if (CombatComp == nullptr)
+	{
+		return;
+	}
+
+	if (PlayerOwner->HasLockOnTarget())
+	{
+		const FVector ToTarget = (PlayerOwner->GetLockOnTargetLocation() - PlayerOwner->GetActorLocation()).GetSafeNormal2D();
+		if (!ToTarget.IsNearlyZero())
+		{
+			CombatComp->ApplyAttackTurnToWorldYaw(PlayerOwner, ToTarget.Rotation().Yaw);
+		}
+		return;
+	}
+
+	CombatComp->ApplyAttackTurnAtComboStart(PlayerOwner, PlayerOwner->GetLastMoveInput());
 }
 
 void UActionSkillComponent::TickComboTimeline()

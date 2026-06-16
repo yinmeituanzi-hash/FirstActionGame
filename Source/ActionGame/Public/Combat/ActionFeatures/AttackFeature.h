@@ -15,10 +15,9 @@ class AActor;
  * 职责：
  *   - 持有 N 段连击蒙太奇数组。
  *   - 维护当前连段索引（CurrentComboIndex）。
- *   - 处理 4 种 Notify：
+ *   - 处理 3 种 Notify：
  *       AttackHitCheck         → 命中判定
  *       AttackComboWindowStart → 打开连段窗口（玩家可在窗口内按 Attack 切下一段）
- *       AttackTurnWindowStart  → 打开转向窗口（仅做标记，下一段开始时消费）
  *       AttackDodgeCancelStart → 打开闪避取消窗口（移除 Block.Dodge）
  *
  * 与原 PlayerCharacter 实现的对应：
@@ -87,7 +86,6 @@ private:
 	int32 GetNextComboIndex() const;
 	void HandleHitCheck();
 	void HandleComboWindowStart();
-	void HandleTurnWindowStart();
 	void HandleDodgeCancelStart();
 
 	/** 防止同一段攻击对同一目标多次扣血。 */

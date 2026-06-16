@@ -22,7 +22,6 @@ namespace ActionGameplayTags
 
 	UE_DEFINE_GAMEPLAY_TAG(Window_Attack_CanDodgeCancel, "Window.Attack.CanDodgeCancel");
 	UE_DEFINE_GAMEPLAY_TAG(Window_Attack_CanCombo, "Window.Attack.CanCombo");
-	UE_DEFINE_GAMEPLAY_TAG(Window_Attack_CanTurn, "Window.Attack.CanTurn");
 	UE_DEFINE_GAMEPLAY_TAG(Window_Dodge_CanRecover, "Window.Dodge.CanRecover");
 
 	UE_DEFINE_GAMEPLAY_TAG(Window_Skill_CanNormalAttackCancel, "Window.Skill.CanNormalAttackCancel");

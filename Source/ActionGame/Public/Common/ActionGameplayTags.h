@@ -34,7 +34,6 @@ namespace ActionGameplayTags
 
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Attack_CanDodgeCancel);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Attack_CanCombo);
-	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Attack_CanTurn);
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Dodge_CanRecover);
 
 	UE_DECLARE_GAMEPLAY_TAG_EXTERN(Window_Skill_CanNormalAttackCancel);

@@ -9,7 +9,7 @@
  *
  * 设计原则：
  *  - 命中类 Notify（HitCheck）玩家和怪物**共用同名**，因为命中判定是相同概念。
- *  - 玩家专属 Notify（连段窗口、转向窗口、闪避取消窗口）保留前缀 `Attack` 不影响。
+ *  - 玩家专属 Notify（连段窗口、闪避取消窗口）保留前缀 `Attack` 不影响。
  */
 namespace ActionCombatNotifies
 {
@@ -21,9 +21,6 @@ namespace ActionCombatNotifies
 
 	/** 玩家专属：打开连段窗口（玩家可在窗口内按 Attack 切下一段）。 */
 	const FName AttackComboWindowStart = TEXT("AttackComboWindowStart");
-
-	/** 玩家专属：打开转向窗口（仅做标记，下一段开始时消费）。 */
-	const FName AttackTurnWindowStart = TEXT("AttackTurnWindowStart");
 
 	/** 玩家专属：打开闪避取消窗口（移除 Block.Dodge）。 */
 	const FName AttackDodgeCancelStart = TEXT("AttackDodgeCancelStart");

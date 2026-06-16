@@ -2,7 +2,6 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
-#include "TimerManager.h"
 #include "ActionCombatComponent.generated.h"
 
 class ACharacter;
@@ -18,7 +17,6 @@ class UAnimMontage;
  *   - 连段切换的蒙太奇 BlendOut 协助
  *   - 连段转向（计算目标 Yaw 后，转交给 ActionCharacterMovementComponent 处理；
  *     不再使用 60Hz Timer + SetActorRotation 这种外挂方式，避免与 RootMotion 旋转打架）
- *   - 闪避充能（保留，DodgeFeature 已自带充能但 ActionCombatComponent 仍提供旧 API 兼容）
  */
 UCLASS(ClassGroup = (Action), meta = (BlueprintSpawnableComponent))
 class ACTIONGAME_API UActionCombatComponent : public UActorComponent
@@ -51,32 +49,11 @@ public:
 
 	bool StopAttackMontageForComboTransition(UAnimInstance* AnimInstance, UAnimMontage* PreviousAttackMontage);
 
+	void ApplyAttackTurnToWorldYaw(ACharacter* Character, float TargetWorldYaw);
+
 	void ApplyAttackTurnAtComboStart(ACharacter* Character, const FVector2D& LastMoveInput);
 
 	/** 主动停止连段转向（例如攻击被打断）。 */
 	void ClearAttackTurn(ACharacter* Character);
 
-	// ---------- 闪避充能（DodgeFeature 已有自己的充能，这里保留兼容旧 API）----------
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|Dodge", meta = (ClampMin = "1"))
-	int32 MaxDodgeCharges = 2;
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat|Dodge")
-	int32 CurrentDodgeCharges = 2;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|Dodge", meta = (ClampMin = "0.0"))
-	float DodgeChargeCooldown = 2.0f;
-
-	void InitializeDodgeCharges();
-	bool HasAvailableDodgeCharge() const;
-	void ConsumeDodgeCharge();
-	int32 GetCurrentDodgeCharges() const { return CurrentDodgeCharges; }
-
-protected:
-	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
-
-private:
-	void RestoreDodgeCharge();
-
-	FTimerHandle DodgeChargeRestoreTimerHandle;
 };

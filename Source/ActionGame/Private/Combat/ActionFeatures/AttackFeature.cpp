@@ -95,9 +95,6 @@ void UAttackFeature::StartComboAtIndex(int32 ComboIndex)
 		}
 	}
 
-	// 转向窗口处理：
-	// 优先级 1：如果有锁定目标，每段攻击启动时都强制朝向锁定目标（覆盖玩家方向输入）。
-	// 优先级 2：上一段标记了 CanTurn，那么进入下一段时消费玩家方向输入做转向。
 	if (Owner->HasLockOnTarget())
 	{
 		if (UActionCombatComponent* CombatComp = Owner->GetActionCombatComponent())
@@ -120,13 +117,6 @@ void UAttackFeature::StartComboAtIndex(int32 ComboIndex)
 			}
 		}
 	}
-	else if (ComboIndex > 0 && Owner->HasActionTag(ActionGameplayTags::Window_Attack_CanTurn))
-	{
-		if (UActionCombatComponent* CombatComp = Owner->GetActionCombatComponent())
-		{
-			CombatComp->ApplyAttackTurnAtComboStart(Owner, Owner->GetLastMoveInput());
-		}
-	}
 
 	// 真正激活（基类负责互斥、状态切换）。
 	if (!bIsActive)
@@ -137,7 +127,6 @@ void UAttackFeature::StartComboAtIndex(int32 ComboIndex)
 	// 启动新一段：清掉所有窗口、命中目标缓存。
 	HitActorsThisSwing.Reset();
 	Owner->RemoveActionTagExternal(ActionGameplayTags::Window_Attack_CanCombo);
-	Owner->RemoveActionTagExternal(ActionGameplayTags::Window_Attack_CanTurn);
 	Owner->RemoveActionTagExternal(ActionGameplayTags::Window_Attack_CanDodgeCancel);
 	Owner->AddActionTagExternal(ActionGameplayTags::Block_Attack);
 	Owner->AddActionTagExternal(ActionGameplayTags::Block_Dodge);
@@ -184,10 +173,6 @@ void UAttackFeature::OnNotify(FName NotifyName, const FBranchingPointNotifyPaylo
 	else if (NotifyName == ActionCombatNotifies::AttackComboWindowStart)
 	{
 		HandleComboWindowStart();
-	}
-	else if (NotifyName == ActionCombatNotifies::AttackTurnWindowStart)
-	{
-		HandleTurnWindowStart();
 	}
 	else if (NotifyName == ActionCombatNotifies::AttackDodgeCancelStart)
 	{
@@ -263,16 +248,6 @@ void UAttackFeature::HandleComboWindowStart()
 		return;
 	}
 	Owner->AddActionTagExternal(ActionGameplayTags::Window_Attack_CanCombo);
-}
-
-void UAttackFeature::HandleTurnWindowStart()
-{
-	AActionPlayerCharacter* Owner = OwnerChar.Get();
-	if (Owner == nullptr)
-	{
-		return;
-	}
-	Owner->AddActionTagExternal(ActionGameplayTags::Window_Attack_CanTurn);
 }
 
 void UAttackFeature::HandleDodgeCancelStart()

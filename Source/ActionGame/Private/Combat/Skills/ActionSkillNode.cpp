@@ -108,6 +108,17 @@ void UActionSkillNode::OnNotifyQuitSkill()
 	bQuitSkillFlag = true;
 }
 
+void UActionSkillNode::OnNotifyTurnWindow()
+{
+	bCanTurnNextNode = true;
+
+	UE_LOG(
+		LogActionSkillNode,
+		Verbose,
+		TEXT("SkillNode[%s]: turn window opened."),
+		*NodeId.ToString());
+}
+
 FName UActionSkillNode::CheckComboTransition()
 {
 	LastMatchedComboInputName = NAME_None;
@@ -284,6 +295,7 @@ void UActionSkillNode::ExecuteEffects(const TArray<FName>& EffectIds, const FStr
 void UActionSkillNode::ResetComboState()
 {
 	bCanEnterNextNode = false;
+	bCanTurnNextNode = false;
 	bQuitSkillFlag = false;
 	ComboInputName = NAME_None;
 	ComboHoldType = NAME_None;

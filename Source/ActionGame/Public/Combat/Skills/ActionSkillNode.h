@@ -37,6 +37,7 @@ public:
 
 	/** Quit Notify 标记当前节点可以自然退出。 */
 	void OnNotifyQuitSkill();
+	void OnNotifyTurnWindow();
 
 	/** 每帧由 SkillComponent 调用，返回应该跳转的目标 NodeId。 */
 	FName CheckComboTransition();
@@ -45,6 +46,7 @@ public:
 	void HandleMontageEndSkillQuit();
 
 	bool ShouldQuitSkill() const { return bQuitSkillFlag; }
+	bool CanTurnNextNode() const { return bCanTurnNextNode; }
 	bool HasValidInput() const;
 
 	UFUNCTION(BlueprintPure, Category = "Action|Skill|Node")
@@ -83,6 +85,7 @@ private:
 
 	bool bActive = false;
 	bool bCanEnterNextNode = false;
+	bool bCanTurnNextNode = false;
 	bool bQuitSkillFlag = false;
 	FName ComboInputName = NAME_None;
 	FName ComboHoldType = NAME_None;

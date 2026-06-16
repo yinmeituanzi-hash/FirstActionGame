@@ -4,7 +4,6 @@
 #include "Char/ActionCharacterMovementComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/Controller.h"
-#include "TimerManager.h"
 
 UActionCombatComponent::UActionCombatComponent()
 {
@@ -20,6 +19,27 @@ bool UActionCombatComponent::StopAttackMontageForComboTransition(UAnimInstance* 
 
 	AnimInstance->Montage_Stop(AttackComboMontageBlendOutTime, PreviousAttackMontage);
 	return true;
+}
+
+void UActionCombatComponent::ApplyAttackTurnToWorldYaw(ACharacter* Character, float TargetWorldYaw)
+{
+	if (Character == nullptr)
+	{
+		return;
+	}
+
+	// 转向仍交给 MovementComponent，避免技能层直接 SetActorRotation 和 RootMotion 打架。
+	UActionCharacterMovementComponent* ActionMove = Cast<UActionCharacterMovementComponent>(Character->GetCharacterMovement());
+	if (ActionMove != nullptr)
+	{
+		ActionMove->RequestAttackComboTurn(TargetWorldYaw, AttackTurnMaxYawSpeedDeg);
+	}
+	else
+	{
+		FRotator NewRot = Character->GetActorRotation();
+		NewRot.Yaw = TargetWorldYaw;
+		Character->SetActorRotation(NewRot);
+	}
 }
 
 void UActionCombatComponent::ApplyAttackTurnAtComboStart(ACharacter* Character, const FVector2D& LastMoveInput)
@@ -77,59 +97,5 @@ void UActionCombatComponent::ClearAttackTurn(ACharacter* Character)
 	if (UActionCharacterMovementComponent* ActionMove = Cast<UActionCharacterMovementComponent>(Character->GetCharacterMovement()))
 	{
 		ActionMove->ClearAttackComboTurn();
-	}
-}
-
-void UActionCombatComponent::EndPlay(const EEndPlayReason::Type EndPlayReason)
-{
-	if (UWorld* World = GetWorld())
-	{
-		World->GetTimerManager().ClearTimer(DodgeChargeRestoreTimerHandle);
-	}
-
-	Super::EndPlay(EndPlayReason);
-}
-
-void UActionCombatComponent::InitializeDodgeCharges()
-{
-	CurrentDodgeCharges = FMath::Max(1, MaxDodgeCharges);
-}
-
-bool UActionCombatComponent::HasAvailableDodgeCharge() const
-{
-	return CurrentDodgeCharges > 0;
-}
-
-void UActionCombatComponent::ConsumeDodgeCharge()
-{
-	const int32 EffectiveMaxCharges = FMath::Max(1, MaxDodgeCharges);
-	CurrentDodgeCharges = FMath::Clamp(CurrentDodgeCharges - 1, 0, EffectiveMaxCharges);
-
-	if (CurrentDodgeCharges < EffectiveMaxCharges && GetWorld() != nullptr && !GetWorld()->GetTimerManager().IsTimerActive(DodgeChargeRestoreTimerHandle))
-	{
-		const float RestoreDelay = DodgeChargeCooldown > 0.0f ? DodgeChargeCooldown : KINDA_SMALL_NUMBER;
-		GetWorld()->GetTimerManager().SetTimer(
-			DodgeChargeRestoreTimerHandle,
-			this,
-			&UActionCombatComponent::RestoreDodgeCharge,
-			RestoreDelay,
-			false);
-	}
-}
-
-void UActionCombatComponent::RestoreDodgeCharge()
-{
-	const int32 EffectiveMaxCharges = FMath::Max(1, MaxDodgeCharges);
-	CurrentDodgeCharges = FMath::Clamp(CurrentDodgeCharges + 1, 0, EffectiveMaxCharges);
-
-	if (CurrentDodgeCharges < EffectiveMaxCharges && GetWorld() != nullptr)
-	{
-		const float RestoreDelay = DodgeChargeCooldown > 0.0f ? DodgeChargeCooldown : KINDA_SMALL_NUMBER;
-		GetWorld()->GetTimerManager().SetTimer(
-			DodgeChargeRestoreTimerHandle,
-			this,
-			&UActionCombatComponent::RestoreDodgeCharge,
-			RestoreDelay,
-			false);
 	}
 }

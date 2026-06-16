@@ -85,6 +85,9 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
 	void OnQuitSkillNotify();
 
+	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
+	void OnTurnWindowNotify();
+
 	/** 检查当前技能是否允许被某类新动作打断。 */
 	UFUNCTION(BlueprintPure, Category = "Action|Skill")
 	bool CheckCanCancelCurrentSkill(EActionSkillCancelFlag IncomingType) const;
@@ -141,6 +144,7 @@ private:
 	void LoadSkillObjectsFromTable();
 	void ClearSkillObjects();
 	bool StartSkillNode(FName NodeId);
+	void ApplyTurnAtNodeStart(const UActionSkillNode* PreviousNode);
 	void TickComboTimeline();
 	void ConsumeComboInput();
 	const FActionSkillNodeRow* FindSkillNodeRow(FName NodeId) const;

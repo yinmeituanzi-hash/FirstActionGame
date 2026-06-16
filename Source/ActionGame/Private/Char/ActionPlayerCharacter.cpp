@@ -149,11 +149,6 @@ void AActionPlayerCharacter::BeginPlay()
 		AnimInstance->SetRootMotionMode(ERootMotionMode::RootMotionFromMontagesOnly);
 	}
 
-	if (ActionCombatComponent != nullptr)
-	{
-		ActionCombatComponent->InitializeDodgeCharges();
-	}
-
 	InitializeFeatures();
 	BindMontageNotifyDelegateIfNeeded();
 
@@ -373,7 +368,6 @@ void AActionPlayerCharacter::OnActionStateExit(EActionCharacterState OldState, E
 		RemoveActionTag(ActionGameplayTags::Block_Move);
 		RemoveActionTag(ActionGameplayTags::Window_Attack_CanDodgeCancel);
 		RemoveActionTag(ActionGameplayTags::Window_Attack_CanCombo);
-		RemoveActionTag(ActionGameplayTags::Window_Attack_CanTurn);
 	}
 
 	if (OldState == EActionCharacterState::Dodging)
@@ -746,7 +740,7 @@ int32 AActionPlayerCharacter::GetCurrentDodgeCharges() const
 	{
 		return DodgeFeature->GetCurrentCharges();
 	}
-	return ActionCombatComponent != nullptr ? ActionCombatComponent->GetCurrentDodgeCharges() : 0;
+	return 0;
 }
 
 // =============================================================================
