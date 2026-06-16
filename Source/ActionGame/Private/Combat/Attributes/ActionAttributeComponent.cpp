@@ -100,6 +100,10 @@ float UActionAttributeComponent::GetClampedValue(EActionAttributeType Attribute,
 		return FMath::Max(Value, 1.0f);
 	case EActionAttributeType::HP:
 		return FMath::Clamp(Value, 0.0f, FMath::Max(GetAttribute(EActionAttributeType::MaxHP), 1.0f));
+	case EActionAttributeType::MaxSP:
+		return FMath::Max(Value, 0.0f);
+	case EActionAttributeType::SP:
+		return FMath::Clamp(Value, 0.0f, FMath::Max(GetAttribute(EActionAttributeType::MaxSP), 0.0f));
 	case EActionAttributeType::AttackPower:
 	case EActionAttributeType::Defense:
 	case EActionAttributeType::MoveSpeed:
@@ -127,6 +131,10 @@ void UActionAttributeComponent::SetAttributeInternal(EActionAttributeType Attrib
 	if (Attribute == EActionAttributeType::MaxHP)
 	{
 		SetAttributeInternal(EActionAttributeType::HP, GetAttribute(EActionAttributeType::HP), bBroadcast);
+	}
+	else if (Attribute == EActionAttributeType::MaxSP)
+	{
+		SetAttributeInternal(EActionAttributeType::SP, GetAttribute(EActionAttributeType::SP), bBroadcast);
 	}
 
 	if (bBroadcast)

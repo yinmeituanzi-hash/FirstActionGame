@@ -179,6 +179,13 @@ struct ACTIONGAME_API FActionSkillNodeRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Node", meta = (ClampMin = "0.0"))
 	float RootMotionScale = 1.0f;
 
+	/**
+	 * 当怪物与目标距离 <= 胶囊半径 * RootMotionRadius 时，自动禁用 Root Motion 防止穿模。
+	 * 0 表示不做距离裁剪。仅对非玩家角色生效。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Node", meta = (ClampMin = "0.0"))
+	float RootMotionRadius = 0.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Node", meta = (ClampMin = "0"))
 	int32 CostSP = 0;
 

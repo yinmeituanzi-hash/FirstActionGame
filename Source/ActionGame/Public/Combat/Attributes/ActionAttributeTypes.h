@@ -20,5 +20,8 @@ enum class EActionAttributeType : uint8
 	MoveSpeed UMETA(DisplayName = "Move Speed"),
 	Poise UMETA(DisplayName = "Poise"),
 	Stamina UMETA(DisplayName = "Stamina"),
-	SkillPower UMETA(DisplayName = "Skill Power")
+	SkillPower UMETA(DisplayName = "Skill Power"),
+
+	SP UMETA(DisplayName = "SP"),
+	MaxSP UMETA(DisplayName = "Max SP")
 };

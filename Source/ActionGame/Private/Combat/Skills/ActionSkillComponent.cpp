@@ -4,6 +4,7 @@
 #include "Animation/AnimMontage.h"
 #include "Char/ActionCharacterBase.h"
 #include "Char/ActionPlayerCharacter.h"
+#include "Combat/Attributes/ActionAttributeComponent.h"
 #include "Combat/Components/ActionCombatComponent.h"
 #include "Combat/Skills/ActionSkillNode.h"
 #include "Combat/Skills/ActionSkillObject.h"
@@ -191,7 +192,17 @@ bool UActionSkillComponent::UseSkill(FName SkillId, AActor* OptionalTarget, EAct
 
 	OnSkillStateChanged.Broadcast(SkillId, true);
 
-	StartSkillNode(SkillObject->GetSkillData().BeginNodeId);
+	const FName BeginNodeId = SkillObject->GetSkillData().BeginNodeId;
+	if (!CanAffordNodeCost(BeginNodeId))
+	{
+		UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: UseSkill blocked — not enough SP for begin node %s."),
+			*GetNameSafe(GetOwner()), *BeginNodeId.ToString());
+		StopSkill(EActionSkillStopReason::Forced);
+		return false;
+	}
+
+	PayNodeCost(BeginNodeId);
+	StartSkillNode(BeginNodeId);
 
 	UE_LOG(LogActionSkill, Log, TEXT("SkillComponent[%s]: UseSkill started. SkillId=%s"), *GetNameSafe(GetOwner()), *SkillId.ToString());
 	return true;
@@ -560,9 +571,18 @@ void UActionSkillComponent::TickComboTimeline()
 	const FName NextNodeId = CurrentSkillNode->CheckComboTransition();
 	if (!NextNodeId.IsNone())
 	{
-		ConsumeComboInput();
-		StartSkillNode(NextNodeId);
-		return;
+		if (!CanAffordNodeCost(NextNodeId))
+		{
+			UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: combo transition blocked — not enough SP for node %s."),
+				*GetNameSafe(GetOwner()), *NextNodeId.ToString());
+		}
+		else
+		{
+			ConsumeComboInput();
+			PayNodeCost(NextNodeId);
+			StartSkillNode(NextNodeId);
+			return;
+		}
 	}
 
 	CurrentSkillNode->TickByTimeLine();
@@ -594,6 +614,61 @@ void UActionSkillComponent::ConsumeComboInput()
 	{
 		InputBuffer->ConsumeInput(InputName);
 	}
+}
+
+bool UActionSkillComponent::CanAffordNodeCost(FName NodeId) const
+{
+	if (NodeId.IsNone())
+	{
+		return true;
+	}
+
+	const FActionSkillNodeRow* NodeRow = FindSkillNodeRow(NodeId);
+	if (NodeRow == nullptr || NodeRow->CostSP <= 0)
+	{
+		return true;
+	}
+
+	const AActionCharacterBase* OwnerCharacter = GetOwnerCharacter();
+	const UActionAttributeComponent* AttrComp = OwnerCharacter != nullptr
+		? OwnerCharacter->FindComponentByClass<UActionAttributeComponent>()
+		: nullptr;
+	if (AttrComp == nullptr)
+	{
+		return true;
+	}
+
+	return AttrComp->GetAttribute(EActionAttributeType::SP) >= static_cast<float>(NodeRow->CostSP);
+}
+
+void UActionSkillComponent::PayNodeCost(FName NodeId)
+{
+	if (NodeId.IsNone())
+	{
+		return;
+	}
+
+	const FActionSkillNodeRow* NodeRow = FindSkillNodeRow(NodeId);
+	if (NodeRow == nullptr || NodeRow->CostSP <= 0)
+	{
+		return;
+	}
+
+	AActionCharacterBase* OwnerCharacter = GetOwnerCharacter();
+	UActionAttributeComponent* AttrComp = OwnerCharacter != nullptr
+		? OwnerCharacter->FindComponentByClass<UActionAttributeComponent>()
+		: nullptr;
+	if (AttrComp == nullptr)
+	{
+		return;
+	}
+
+	AttrComp->ModifyAttribute(EActionAttributeType::SP, -static_cast<float>(NodeRow->CostSP));
+	UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: paid SP cost %d for node %s. Remaining SP=%.0f"),
+		*GetNameSafe(GetOwner()),
+		NodeRow->CostSP,
+		*NodeId.ToString(),
+		AttrComp->GetAttribute(EActionAttributeType::SP));
 }
 
 const FActionSkillNodeRow* UActionSkillComponent::FindSkillNodeRow(FName NodeId) const

@@ -87,6 +87,7 @@ private:
 	bool bCanEnterNextNode = false;
 	bool bCanTurnNextNode = false;
 	bool bQuitSkillFlag = false;
+	bool bAppliedRootMotionOverride = false;
 	FName ComboInputName = NAME_None;
 	FName ComboHoldType = NAME_None;
 	FName LastMatchedComboInputName = NAME_None;
@@ -97,4 +98,6 @@ private:
 	void ExecuteEffects(const TArray<FName>& EffectIds, const FString& TimingText);
 	void ResetComboState();
 	bool HasValidBufferedInput(FName InputName) const;
+	void ApplyRootMotionSettings();
+	void ClearRootMotionSettings();
 };

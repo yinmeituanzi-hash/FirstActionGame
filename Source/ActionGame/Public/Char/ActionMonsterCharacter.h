@@ -187,7 +187,7 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack", meta = (ClampMin = "0.0"))
 	float AttackCooldown = 1.5f;
 
-	// ---------- 球形命中判定参数（与玩家 AttackFeature 同款） ----------
+	// ---------- 球形命中判定参数 ----------
 
 	/** 球心从怪物中心沿 Forward 方向的偏移距离（cm）。一般略小于攻击距离。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Combat|MonsterAttack|HitCheck", meta = (ClampMin = "0.0"))

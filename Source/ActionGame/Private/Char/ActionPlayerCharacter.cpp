@@ -114,7 +114,6 @@ AActionPlayerCharacter::AActionPlayerCharacter(const FObjectInitializer& ObjectI
 	HitFeedbackComponent = CreateDefaultSubobject<UHitFeedbackComponent>(TEXT("HitFeedbackComponent"));
 
 	// ---------- Feature 默认子类（蓝图可覆盖）----------
-	AttackFeatureClass = nullptr;
 	DodgeFeatureClass = UDodgeFeature::StaticClass();
 	JumpFeatureClass = UNormalJumpFeature::StaticClass();
 }
@@ -577,8 +576,6 @@ bool AActionPlayerCharacter::HasLockOnTarget() const
 void AActionPlayerCharacter::InitializeFeatures()
 {
 	Features.Reset();
-
-	AttackFeature = nullptr;
 
 	if (DodgeFeatureClass != nullptr)
 	{

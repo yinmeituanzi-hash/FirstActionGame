@@ -12,8 +12,8 @@ class UClass;
  * 攻击命中通用库。
  *
  * 抽离原因：
- *  - 玩家走 UAttackFeature::HandleHitCheck（Notify 触发 + 球形判定）
- *  - 怪物 Day 2 之前走 Timer + Dist2D 直接取玩家，机制不一致
+ *  - 玩家走 SkillEffect + Notify 触发球形判定
+ *  - 怪物走 Timer + Dist2D 直接取玩家（后续也会迁移到 SkillEffect）
  *  - 未来要扩"扇形/胶囊判定/武器 socket 起点"，必须只改一处
  *
  * 这里只负责"做球形判定 + 调 Victim->ReceiveHit"。

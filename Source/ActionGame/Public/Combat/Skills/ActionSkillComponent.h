@@ -147,6 +147,8 @@ private:
 	void ApplyTurnAtNodeStart(const UActionSkillNode* PreviousNode);
 	void TickComboTimeline();
 	void ConsumeComboInput();
+	bool CanAffordNodeCost(FName NodeId) const;
+	void PayNodeCost(FName NodeId);
 	const FActionSkillNodeRow* FindSkillNodeRow(FName NodeId) const;
 	UAnimInstance* GetOwnerAnimInstance() const;
 	bool PlayCurrentNodeMontage();

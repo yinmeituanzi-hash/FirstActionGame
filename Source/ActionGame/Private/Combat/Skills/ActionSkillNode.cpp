@@ -3,9 +3,11 @@
 #include "Animation/AnimInstance.h"
 #include "Animation/AnimMontage.h"
 #include "Char/ActionCharacterBase.h"
+#include "Char/ActionCharacterMovementComponent.h"
 #include "Combat/Skills/ActionSkillComponent.h"
 #include "Combat/Skills/ActionSkillEffectLibrary.h"
 #include "Combat/Skills/ActionSkillObject.h"
+#include "Components/CapsuleComponent.h"
 #include "Engine/DataTable.h"
 #include "Input/InputBufferComponent.h"
 
@@ -49,6 +51,7 @@ void UActionSkillNode::Activate()
 		}
 	}
 
+	ApplyRootMotionSettings();
 	ExecuteEffects(EffectsWhenEnter, TEXT("Enter"));
 }
 
@@ -57,6 +60,7 @@ void UActionSkillNode::Deactivate()
 	if (bActive)
 	{
 		ExecuteEffects(EffectsWhenLeave, TEXT("Leave"));
+		ClearRootMotionSettings();
 		bActive = false;
 	}
 
@@ -316,4 +320,89 @@ bool UActionSkillNode::HasValidBufferedInput(FName InputName) const
 		: nullptr;
 
 	return InputBuffer != nullptr && InputBuffer->HasValidInput(InputName);
+}
+
+void UActionSkillNode::ApplyRootMotionSettings()
+{
+	bAppliedRootMotionOverride = false;
+
+	if (!NodeData.bUseRootMotion)
+	{
+		return;
+	}
+
+	const UActionSkillComponent* SkillComponent = OwnerComponent.Get();
+	AActionCharacterBase* OwnerCharacter = SkillComponent != nullptr ? SkillComponent->GetOwnerCharacter() : nullptr;
+	if (OwnerCharacter == nullptr)
+	{
+		return;
+	}
+
+	float EffectiveScale = NodeData.RootMotionScale;
+
+	if (NodeData.RootMotionRadius > 0.0f)
+	{
+		const UActionSkillObject* Skill = SkillObject.Get();
+		const AActor* Target = Skill != nullptr ? Skill->GetCurrentTarget() : nullptr;
+		if (Target != nullptr)
+		{
+			const float Distance = FVector::Dist(OwnerCharacter->GetActorLocation(), Target->GetActorLocation());
+			const float CapsuleRadius = OwnerCharacter->GetCapsuleComponent() != nullptr
+				? OwnerCharacter->GetCapsuleComponent()->GetUnscaledCapsuleRadius()
+				: 0.0f;
+			const float Threshold = CapsuleRadius * NodeData.RootMotionRadius;
+			if (Distance > 0.0f && Distance <= Threshold)
+			{
+				EffectiveScale = 0.0f;
+				UE_LOG(
+					LogActionSkillNode,
+					Verbose,
+					TEXT("SkillNode[%s]: RootMotion disabled — distance %.1f <= threshold %.1f (radius=%.1f * capsule=%.1f)"),
+					*NodeId.ToString(),
+					Distance,
+					Threshold,
+					NodeData.RootMotionRadius,
+					CapsuleRadius);
+			}
+		}
+	}
+
+	UActionCharacterMovementComponent* MovementComp = OwnerCharacter->GetActionCharacterMovement();
+	if (MovementComp == nullptr)
+	{
+		return;
+	}
+
+	MovementComp->RootMotionZScale = EffectiveScale;
+	bAppliedRootMotionOverride = true;
+
+	UE_LOG(
+		LogActionSkillNode,
+		Verbose,
+		TEXT("SkillNode[%s]: RootMotion applied. Scale=%.2f"),
+		*NodeId.ToString(),
+		EffectiveScale);
+}
+
+void UActionSkillNode::ClearRootMotionSettings()
+{
+	if (!bAppliedRootMotionOverride)
+	{
+		return;
+	}
+
+	bAppliedRootMotionOverride = false;
+
+	const UActionSkillComponent* SkillComponent = OwnerComponent.Get();
+	AActionCharacterBase* OwnerCharacter = SkillComponent != nullptr ? SkillComponent->GetOwnerCharacter() : nullptr;
+	if (OwnerCharacter == nullptr)
+	{
+		return;
+	}
+
+	UActionCharacterMovementComponent* MovementComp = OwnerCharacter->GetActionCharacterMovement();
+	if (MovementComp != nullptr)
+	{
+		MovementComp->RootMotionZScale = 1.0f;
+	}
 }

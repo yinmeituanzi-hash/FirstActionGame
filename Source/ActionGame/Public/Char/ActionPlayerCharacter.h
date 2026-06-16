@@ -7,7 +7,6 @@
 
 class UActionCombatComponent;
 class UActionFeatureBase;
-class UAttackFeature;
 class UCameraComponent;
 class UDodgeFeature;
 class UInputAction;
@@ -119,7 +118,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|Camera")
 	UCameraComponent* GetFollowCamera() const { return FollowCamera; }
 
-	/** 当前锁定目标位置（无锁则返回零向量）。供 AttackFeature/DodgeFeature 使用。 */
+	/** 当前锁定目标位置（无锁则返回零向量）。供 DodgeFeature / SkillNode 连段转向使用。 */
 	UFUNCTION(BlueprintPure, Category = "Action|LockOn")
 	FVector GetLockOnTargetLocation() const;
 
@@ -302,19 +301,15 @@ protected:
 
 	/**
 	 * 攻击命中噪音的传播半径（cm）。
-	 * 命中后顺手由 AttackFeature 报一次 Combat 噪音，把附近未察觉的怪也拉到 Alert。
+	 * 命中后由 SkillEffect 报一次 Combat 噪音，把附近未察觉的怪也拉到 Alert。
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Hearing", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
 	float AttackNoiseLoudness = 2500.0f;
 
-	/** Sprint 5 Day5 起，玩家普攻正式走 SkillNode 连段系统，不再走 AttackFeature。 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Skill", meta = (AllowPrivateAccess = "true"))
 	FName NormalAttackSkillId = TEXT("Player_NormalAttack03");
 
 	// ---------- Feature 配置（编辑器里指定子类） ----------
-
-	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Feature")
-	TSubclassOf<UAttackFeature> AttackFeatureClass;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category = "Action|Feature")
 	TSubclassOf<UDodgeFeature> DodgeFeatureClass;
@@ -323,9 +318,6 @@ protected:
 	TSubclassOf<UNormalJumpFeature> JumpFeatureClass;
 
 	// ---------- Feature 运行时实例 ----------
-
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Feature")
-	TObjectPtr<UAttackFeature> AttackFeature;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Feature")
 	TObjectPtr<UDodgeFeature> DodgeFeature;
