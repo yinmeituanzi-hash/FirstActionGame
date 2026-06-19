@@ -1,13 +1,13 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "Combat/Attributes/ActionAttributeTypes.h"
+#include "Combat/Attributes/AttributeTypes.h"
 #include "GameFramework/Character.h"
 #include "GameplayTagAssetInterface.h"
 #include "GameplayTagContainer.h"
 #include "ActionCharacterBase.generated.h"
 
-class UActionAttributeComponent;
+class UAttributeComponent;
 class UActionCharacterMovementComponent;
 class UActionSkillComponent;
 class UActionVFXComponent;
@@ -41,7 +41,7 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FActionStateChangedSignature, EActi
  * 战斗角色基类。
  *
  * 只承接所有角色共用的动作状态、阵营、受击入口、技能入口和属性入口。
- * HP / MaxHP / AttackPower 等数值不再放在角色字段里，而是统一交给 UActionAttributeComponent。
+ * HP / MaxHP / AttackPower 等数值不再放在角色字段里，而是统一交给 UAttributeComponent。
  */
 UCLASS()
 class ACTIONGAME_API AActionCharacterBase : public ACharacter, public IGameplayTagAssetInterface
@@ -103,7 +103,7 @@ public:
 	UActionVFXComponent* GetActionVFXComponent() const { return VFXComponent; }
 
 	UFUNCTION(BlueprintPure, Category = "Action|Attributes")
-	UActionAttributeComponent* GetActionAttributeComponent() const { return AttributeComponent; }
+	UAttributeComponent* GetAttributeComponent() const { return AttributeComponent; }
 
 	/** 最小死亡入口。玩家死亡、怪物死亡和技能死亡打断都从这里扩展。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|Combat")
@@ -119,7 +119,7 @@ public:
 	float GetAttackPower() const;
 
 	UFUNCTION(BlueprintPure, Category = "Action|Attributes")
-	float GetActionAttribute(EActionAttributeType Attribute) const;
+	float GetAttribute(EAttributeType Attribute) const;
 
 	UFUNCTION(BlueprintPure, Category = "Action|Combat|Team")
 	EActionCombatTeam GetCombatTeam() const { return CombatTeam; }
@@ -178,7 +178,7 @@ public:
 protected:
 	/** 统一战斗属性入口。HP / MaxHP / AttackPower 等属性的默认值和运行时值都由这里管理。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Attributes")
-	TObjectPtr<UActionAttributeComponent> AttributeComponent;
+	TObjectPtr<UAttributeComponent> AttributeComponent;
 
 	/** 受击调度组件：统一处理扣血后的反馈、受击动画和物理表现。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Combat")
@@ -206,7 +206,7 @@ protected:
 	virtual void SetActionState(EActionCharacterState NewState);
 
 	UFUNCTION()
-	void HandleAttributeChanged(EActionAttributeType Attribute, float OldValue, float NewValue);
+	void HandleAttributeChanged(EAttributeType Attribute, float OldValue, float NewValue);
 
 	void AddActionTag(FGameplayTag Tag);
 	void RemoveActionTag(FGameplayTag Tag);

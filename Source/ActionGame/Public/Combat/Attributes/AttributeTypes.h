@@ -1,7 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "ActionAttributeTypes.generated.h"
+#include "AttributeTypes.generated.h"
 
 /**
  * 战斗属性名。
@@ -10,7 +10,7 @@
  * 后续装备 / Buff / 元素系统可以继续扩展这个枚举，而不需要让 CharacterBase 增加散落字段。
  */
 UENUM(BlueprintType)
-enum class EActionAttributeType : uint8
+enum class EAttributeType : uint8
 {
 	HP UMETA(DisplayName = "HP"),
 	MaxHP UMETA(DisplayName = "Max HP"),

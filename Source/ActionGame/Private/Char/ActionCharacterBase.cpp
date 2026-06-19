@@ -2,7 +2,7 @@
 
 #include "Animation/AnimInstance.h"
 #include "Char/ActionCharacterMovementComponent.h"
-#include "Combat/Attributes/ActionAttributeComponent.h"
+#include "Combat/Attributes/AttributeComponent.h"
 #include "Combat/HitReact/HitPhysicsComponent.h"
 #include "Combat/HitReact/HitReactComponent.h"
 #include "Combat/HitReact/HitReactTypes.h"
@@ -37,7 +37,7 @@ AActionCharacterBase::AActionCharacterBase(const FObjectInitializer& ObjectIniti
 	MovementComponent->BrakingDecelerationWalking = 2000.0f;
 	MovementComponent->BrakingDecelerationFalling = 1500.0f;
 
-	AttributeComponent = CreateDefaultSubobject<UActionAttributeComponent>(TEXT("ActionAttributeComponent"));
+	AttributeComponent = CreateDefaultSubobject<UAttributeComponent>(TEXT("AttributeComponent"));
 	HitReceiverComponent = CreateDefaultSubobject<UHitReceiverComponent>(TEXT("HitReceiverComponent"));
 	HitReactComponent = CreateDefaultSubobject<UHitReactComponent>(TEXT("HitReactComponent"));
 	HitPhysicsComponent = CreateDefaultSubobject<UHitPhysicsComponent>(TEXT("HitPhysicsComponent"));
@@ -104,7 +104,7 @@ void AActionCharacterBase::ApplyDamage(float InDamage)
 		return;
 	}
 
-	AttributeComponent->ModifyAttribute(EActionAttributeType::HP, -ActualDamage);
+	AttributeComponent->ModifyAttribute(EAttributeType::HP, -ActualDamage);
 
 	if (GetCurrentHP() <= 0.0f)
 	{
@@ -138,7 +138,7 @@ void AActionCharacterBase::Die()
 	bIsDead = true;
 	if (AttributeComponent != nullptr)
 	{
-		AttributeComponent->SetAttribute(EActionAttributeType::HP, 0.0f);
+		AttributeComponent->SetAttribute(EAttributeType::HP, 0.0f);
 	}
 
 	if (SkillComponent != nullptr && SkillComponent->IsUsingSkill())
@@ -163,20 +163,20 @@ UActionCharacterMovementComponent* AActionCharacterBase::GetActionCharacterMovem
 
 float AActionCharacterBase::GetCurrentHP() const
 {
-	return GetActionAttribute(EActionAttributeType::HP);
+	return GetAttribute(EAttributeType::HP);
 }
 
 float AActionCharacterBase::GetMaxHP() const
 {
-	return GetActionAttribute(EActionAttributeType::MaxHP);
+	return GetAttribute(EAttributeType::MaxHP);
 }
 
 float AActionCharacterBase::GetAttackPower() const
 {
-	return GetActionAttribute(EActionAttributeType::AttackPower);
+	return GetAttribute(EAttributeType::AttackPower);
 }
 
-float AActionCharacterBase::GetActionAttribute(EActionAttributeType Attribute) const
+float AActionCharacterBase::GetAttribute(EAttributeType Attribute) const
 {
 	return AttributeComponent != nullptr ? AttributeComponent->GetAttribute(Attribute) : 0.0f;
 }
@@ -314,12 +314,12 @@ void AActionCharacterBase::SetActionState(EActionCharacterState NewState)
 	OnActionStateChanged.Broadcast(OldState, NewState);
 }
 
-void AActionCharacterBase::HandleAttributeChanged(EActionAttributeType Attribute, float OldValue, float NewValue)
+void AActionCharacterBase::HandleAttributeChanged(EAttributeType Attribute, float OldValue, float NewValue)
 {
 	(void)OldValue;
 
 	// 外部系统直接把 HP 改到 0 时，也必须进入角色统一死亡流程。
-	if (Attribute == EActionAttributeType::HP && NewValue <= 0.0f && !IsDead())
+	if (Attribute == EAttributeType::HP && NewValue <= 0.0f && !IsDead())
 	{
 		Die();
 	}

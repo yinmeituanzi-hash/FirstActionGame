@@ -4,7 +4,7 @@
 #include "Animation/AnimMontage.h"
 #include "Char/ActionCharacterBase.h"
 #include "Char/ActionPlayerCharacter.h"
-#include "Combat/Attributes/ActionAttributeComponent.h"
+#include "Combat/Attributes/AttributeComponent.h"
 #include "Combat/Components/ActionCombatComponent.h"
 #include "Combat/Skills/ActionSkillNode.h"
 #include "Combat/Skills/ActionSkillObject.h"
@@ -630,15 +630,15 @@ bool UActionSkillComponent::CanAffordNodeCost(FName NodeId) const
 	}
 
 	const AActionCharacterBase* OwnerCharacter = GetOwnerCharacter();
-	const UActionAttributeComponent* AttrComp = OwnerCharacter != nullptr
-		? OwnerCharacter->FindComponentByClass<UActionAttributeComponent>()
+	const UAttributeComponent* AttrComp = OwnerCharacter != nullptr
+		? OwnerCharacter->FindComponentByClass<UAttributeComponent>()
 		: nullptr;
 	if (AttrComp == nullptr)
 	{
 		return true;
 	}
 
-	return AttrComp->GetAttribute(EActionAttributeType::SP) >= static_cast<float>(NodeRow->CostSP);
+	return AttrComp->GetAttribute(EAttributeType::SP) >= static_cast<float>(NodeRow->CostSP);
 }
 
 void UActionSkillComponent::PayNodeCost(FName NodeId)
@@ -655,20 +655,20 @@ void UActionSkillComponent::PayNodeCost(FName NodeId)
 	}
 
 	AActionCharacterBase* OwnerCharacter = GetOwnerCharacter();
-	UActionAttributeComponent* AttrComp = OwnerCharacter != nullptr
-		? OwnerCharacter->FindComponentByClass<UActionAttributeComponent>()
+	UAttributeComponent* AttrComp = OwnerCharacter != nullptr
+		? OwnerCharacter->FindComponentByClass<UAttributeComponent>()
 		: nullptr;
 	if (AttrComp == nullptr)
 	{
 		return;
 	}
 
-	AttrComp->ModifyAttribute(EActionAttributeType::SP, -static_cast<float>(NodeRow->CostSP));
+	AttrComp->ModifyAttribute(EAttributeType::SP, -static_cast<float>(NodeRow->CostSP));
 	UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: paid SP cost %d for node %s. Remaining SP=%.0f"),
 		*GetNameSafe(GetOwner()),
 		NodeRow->CostSP,
 		*NodeId.ToString(),
-		AttrComp->GetAttribute(EActionAttributeType::SP));
+		AttrComp->GetAttribute(EAttributeType::SP));
 }
 
 const FActionSkillNodeRow* UActionSkillComponent::FindSkillNodeRow(FName NodeId) const

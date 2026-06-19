@@ -13,6 +13,19 @@ class UActionSkillObject;
 struct FCollisionShape;
 
 /**
+ * 同一批 Effects 共享的执行上下文。
+ *
+ * 参照 010 的 EffectStruct.HitTargets 设计：同一次 Notify（或 Enter/Leave）
+ * 触发的所有 Effect 共享命中信息，使得 RestoreSP 等后续 Effect
+ * 能依赖前面 Damage Effect 的真实命中结果。
+ */
+struct FActionSkillEffectContext
+{
+	int32 TotalHitCount = 0;
+	TArray<TWeakObjectPtr<AActor>> HitTargets;
+};
+
+/**
  * 技能效果执行库。
  *
  * SkillNode 只负责把动画事件分派到 EffectId；真正的目标筛选、伤害结算、
@@ -30,7 +43,8 @@ public:
 		UActionSkillObject* SkillObject,
 		UActionSkillNode* SkillNode,
 		FName EffectId,
-		const FActionSkillEffectRow& EffectRow);
+		const FActionSkillEffectRow& EffectRow,
+		FActionSkillEffectContext& Context);
 
 private:
 	static void ExecuteDamage(
@@ -39,7 +53,8 @@ private:
 		UActionSkillObject* SkillObject,
 		UActionSkillNode* SkillNode,
 		FName EffectId,
-		const FActionSkillEffectRow& EffectRow);
+		const FActionSkillEffectRow& EffectRow,
+		FActionSkillEffectContext& Context);
 
 	static void ExecutePlayVFX(
 		UActionSkillComponent* SkillComponent,
@@ -54,6 +69,11 @@ private:
 	static void ExecuteReportNoise(
 		UActionSkillComponent* SkillComponent,
 		const FActionSkillEffectRow& EffectRow);
+
+	static void ExecuteRestoreSP(
+		UActionSkillComponent* SkillComponent,
+		const FActionSkillEffectRow& EffectRow,
+		const FActionSkillEffectContext& Context);
 
 	static FHitContext BuildHitContext(AActionCharacterBase* SourceCharacter, const FActionSkillEffectRow& EffectRow);
 	static FVector GetEffectCenter(AActionCharacterBase* SourceCharacter, const FActionSkillEffectRow& EffectRow);

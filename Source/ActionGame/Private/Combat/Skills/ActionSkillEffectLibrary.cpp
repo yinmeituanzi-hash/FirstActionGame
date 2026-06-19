@@ -3,6 +3,7 @@
 #include "AI/Noise/AINoiseSubsystem.h"
 #include "Char/ActionCharacterBase.h"
 #include "CollisionShape.h"
+#include "Combat/Attributes/AttributeComponent.h"
 #include "Combat/ActionCombatLibrary.h"
 #include "Combat/Skills/ActionSkillComponent.h"
 #include "Combat/Skills/ActionSkillNode.h"
@@ -33,7 +34,8 @@ void UActionSkillEffectLibrary::ExecuteEffect(
 	UActionSkillObject* SkillObject,
 	UActionSkillNode* SkillNode,
 	FName EffectId,
-	const FActionSkillEffectRow& EffectRow)
+	const FActionSkillEffectRow& EffectRow,
+	FActionSkillEffectContext& Context)
 {
 	if (SkillComponent == nullptr || SkillObject == nullptr)
 	{
@@ -43,7 +45,7 @@ void UActionSkillEffectLibrary::ExecuteEffect(
 	switch (EffectRow.EffectType)
 	{
 	case EActionSkillEffectType::Damage:
-		ExecuteDamage(WorldContext, SkillComponent, SkillObject, SkillNode, EffectId, EffectRow);
+		ExecuteDamage(WorldContext, SkillComponent, SkillObject, SkillNode, EffectId, EffectRow, Context);
 		break;
 	case EActionSkillEffectType::PlayVFX:
 		ExecutePlayVFX(SkillComponent, SkillObject, EffectRow);
@@ -53,6 +55,9 @@ void UActionSkillEffectLibrary::ExecuteEffect(
 		break;
 	case EActionSkillEffectType::ReportNoise:
 		ExecuteReportNoise(SkillComponent, EffectRow);
+		break;
+	case EActionSkillEffectType::RestoreSP:
+		ExecuteRestoreSP(SkillComponent, EffectRow, Context);
 		break;
 	case EActionSkillEffectType::SpawnCreature:
 	case EActionSkillEffectType::ApplyTagForDuration:
@@ -74,7 +79,8 @@ void UActionSkillEffectLibrary::ExecuteDamage(
 	UActionSkillObject* SkillObject,
 	UActionSkillNode* SkillNode,
 	FName EffectId,
-	const FActionSkillEffectRow& EffectRow)
+	const FActionSkillEffectRow& EffectRow,
+	FActionSkillEffectContext& Context)
 {
 	AActionCharacterBase* SourceCharacter = SkillComponent != nullptr ? SkillComponent->GetOwnerCharacter() : nullptr;
 	if (WorldContext == nullptr || SourceCharacter == nullptr || SkillObject == nullptr || SourceCharacter->IsDead())
@@ -161,6 +167,15 @@ void UActionSkillEffectLibrary::ExecuteDamage(
 		*SkillObject->GetSkillId().ToString(),
 		*EffectId.ToString(),
 		HitCount);
+
+	Context.TotalHitCount += HitCount;
+	for (const TWeakObjectPtr<AActor>& WeakActor : HitActors)
+	{
+		if (WeakActor.IsValid())
+		{
+			Context.HitTargets.AddUnique(WeakActor);
+		}
+	}
 }
 
 void UActionSkillEffectLibrary::ExecutePlayVFX(
@@ -239,6 +254,49 @@ void UActionSkillEffectLibrary::ExecuteReportNoise(
 			SourceCharacter,
 			EffectRow.NoiseCategory);
 	}
+}
+
+void UActionSkillEffectLibrary::ExecuteRestoreSP(
+	UActionSkillComponent* SkillComponent,
+	const FActionSkillEffectRow& EffectRow,
+	const FActionSkillEffectContext& Context)
+{
+	if (EffectRow.SPRestoreAmount <= 0)
+	{
+		return;
+	}
+
+	if (Context.TotalHitCount <= 0)
+	{
+		return;
+	}
+
+	AActionCharacterBase* SourceCharacter = SkillComponent != nullptr ? SkillComponent->GetOwnerCharacter() : nullptr;
+	if (SourceCharacter == nullptr)
+	{
+		return;
+	}
+
+	UAttributeComponent* AttrComp = SourceCharacter->FindComponentByClass<UAttributeComponent>();
+	if (AttrComp == nullptr)
+	{
+		return;
+	}
+
+	const float RestoreTotal = static_cast<float>(EffectRow.SPRestoreAmount) * Context.TotalHitCount;
+	const float OldSP = AttrComp->GetAttribute(EAttributeType::SP);
+	AttrComp->ModifyAttribute(EAttributeType::SP, RestoreTotal);
+	const float NewSP = AttrComp->GetAttribute(EAttributeType::SP);
+
+	UE_LOG(
+		LogActionSkillEffect,
+		Verbose,
+		TEXT("ActionSkillEffect: RestoreSP. AmountPerHit=%d HitCount=%d TotalRestore=%.0f OldSP=%.0f NewSP=%.0f"),
+		EffectRow.SPRestoreAmount,
+		Context.TotalHitCount,
+		RestoreTotal,
+		OldSP,
+		NewSP);
 }
 
 FHitContext UActionSkillEffectLibrary::BuildHitContext(AActionCharacterBase* SourceCharacter, const FActionSkillEffectRow& EffectRow)

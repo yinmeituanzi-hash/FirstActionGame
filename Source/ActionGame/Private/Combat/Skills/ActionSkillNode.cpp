@@ -265,6 +265,8 @@ void UActionSkillNode::ExecuteEffects(const TArray<FName>& EffectIds, const FStr
 		return;
 	}
 
+	FActionSkillEffectContext Context;
+
 	for (const FName EffectId : EffectIds)
 	{
 		const FActionSkillEffectRow* EffectRow = SkillEffectDataTable->FindRow<FActionSkillEffectRow>(
@@ -292,7 +294,7 @@ void UActionSkillNode::ExecuteEffects(const TArray<FName>& EffectIds, const FStr
 			*SkillId.ToString(),
 			*TimingText);
 
-		UActionSkillEffectLibrary::ExecuteEffect(this, SkillComponent, Skill, this, EffectId, *EffectRow);
+		UActionSkillEffectLibrary::ExecuteEffect(this, SkillComponent, Skill, this, EffectId, *EffectRow, Context);
 	}
 }
 

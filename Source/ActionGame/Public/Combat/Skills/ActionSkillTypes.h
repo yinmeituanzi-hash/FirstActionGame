@@ -71,7 +71,8 @@ enum class EActionSkillEffectType : uint8
 	StopVFX UMETA(DisplayName = "Stop VFX"),
 	ReportNoise UMETA(DisplayName = "Report Noise"),
 	ApplyTagForDuration UMETA(DisplayName = "Apply Tag For Duration"),
-	Stun UMETA(DisplayName = "Stun")
+	Stun UMETA(DisplayName = "Stun"),
+	RestoreSP UMETA(DisplayName = "Restore SP")
 };
 
 UENUM(BlueprintType)
@@ -284,6 +285,10 @@ struct ACTIONGAME_API FActionSkillEffectRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect", meta = (ClampMin = "0.0"))
 	float TagDuration = 0.0f;
+
+	/** RestoreSP 效果类型使用：每次命中恢复的 SP 量。实际总回复 = SPRestoreAmount * 本次命中数。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect", meta = (ClampMin = "0"))
+	int32 SPRestoreAmount = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
 	bool bDrawDebug = false;
