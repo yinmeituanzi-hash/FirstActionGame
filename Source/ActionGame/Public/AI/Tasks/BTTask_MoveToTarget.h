@@ -23,8 +23,9 @@ public:
 
 	/**
 	 * 是否用 Character.MonsterAttackRange - Buffer 作为 AcceptableRadius。
-	 * - true（默认）：保证停在攻击距离内一点点，让后续 BTTask_MonsterAttack 一进来就在范围内。
+	 * - true（默认）：保证停在攻击距离内一点点，让后续 UseSkill 节点一进来就在范围内。
 	 * - false：使用 BT 节点上配置的 AcceptableRadius。
+	 * TODO: 技能释放距离接入选招 Service 后，这里应改为读取当前选中 Skill 的 PreferredReleaseRange。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Action|AI")
 	bool bUseAttackRangeAsAcceptanceRadius = true;

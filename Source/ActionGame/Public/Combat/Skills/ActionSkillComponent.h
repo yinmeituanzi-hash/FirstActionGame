@@ -66,6 +66,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|Skill")
 	float GetSkillCooldownRemaining(FName SkillId) const;
 
+	UFUNCTION(BlueprintPure, Category = "Action|Skill|AI")
+	bool GetSkillReleaseRange(FName SkillId, float& OutMinRange, float& OutMaxRange, float& OutPreferredRange) const;
+
+	UFUNCTION(BlueprintPure, Category = "Action|Skill|AI")
+	bool IsTargetInSkillReleaseRange(FName SkillId, const AActor* TargetActor) const;
+
 	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
 	bool CanUseSkill(FName SkillId, EActionSkillCancelFlag IncomingType = EActionSkillCancelFlag::Skill) const;
 

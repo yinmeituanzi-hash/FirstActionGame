@@ -116,6 +116,25 @@ struct ACTIONGAME_API FActionSkillRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill", meta = (ClampMin = "0.0"))
 	float Cooldown = 0.0f;
 
+	/**
+	 * AI 释放距离配置。
+	 *
+	 * 这是“行为树是否应该释放该技能”的决策距离，不是命中判定范围。
+	 * 命中体大小仍放在 SkillEffect / SkillCreature 中，类似 010 中 UseSkill 条件和 Effect 范围分层。
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|AI")
+	bool bUseReleaseRange = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|AI", meta = (EditCondition = "bUseReleaseRange", ClampMin = "0.0"))
+	float MinReleaseRange = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|AI", meta = (EditCondition = "bUseReleaseRange", ClampMin = "0.0"))
+	float MaxReleaseRange = 0.0f;
+
+	/** AI 走位时更想停留的距离。0 表示使用 MaxReleaseRange。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|AI", meta = (EditCondition = "bUseReleaseRange", ClampMin = "0.0"))
+	float PreferredReleaseRange = 0.0f;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill", meta = (ClampMin = "1"))
 	int32 MaxUseCount = 1;
 

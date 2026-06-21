@@ -120,6 +120,52 @@ float UActionSkillComponent::GetSkillCooldownRemaining(FName SkillId) const
 	return SkillObject != nullptr ? SkillObject->GetCooldownRemaining() : 0.0f;
 }
 
+bool UActionSkillComponent::GetSkillReleaseRange(FName SkillId, float& OutMinRange, float& OutMaxRange, float& OutPreferredRange) const
+{
+	OutMinRange = 0.0f;
+	OutMaxRange = 0.0f;
+	OutPreferredRange = 0.0f;
+
+	const UActionSkillObject* SkillObject = GetSkillObject(SkillId);
+	if (SkillObject == nullptr)
+	{
+		return false;
+	}
+
+	const FActionSkillRow SkillData = SkillObject->GetSkillData();
+	if (!SkillData.bUseReleaseRange)
+	{
+		return false;
+	}
+
+	OutMinRange = FMath::Max(0.0f, SkillData.MinReleaseRange);
+	OutMaxRange = FMath::Max(OutMinRange, SkillData.MaxReleaseRange);
+	OutPreferredRange = SkillData.PreferredReleaseRange > 0.0f
+		? FMath::Clamp(SkillData.PreferredReleaseRange, OutMinRange, OutMaxRange)
+		: OutMaxRange;
+	return OutMaxRange > 0.0f;
+}
+
+bool UActionSkillComponent::IsTargetInSkillReleaseRange(FName SkillId, const AActor* TargetActor) const
+{
+	const AActionCharacterBase* OwnerCharacter = GetOwnerCharacter();
+	float MinRange = 0.0f;
+	float MaxRange = 0.0f;
+	float PreferredRange = 0.0f;
+	if (!GetSkillReleaseRange(SkillId, MinRange, MaxRange, PreferredRange))
+	{
+		return true;
+	}
+
+	if (OwnerCharacter == nullptr || TargetActor == nullptr)
+	{
+		return false;
+	}
+
+	const float Distance = FVector::Dist2D(OwnerCharacter->GetActorLocation(), TargetActor->GetActorLocation());
+	return Distance >= MinRange && Distance <= MaxRange;
+}
+
 bool UActionSkillComponent::CanUseSkill(FName SkillId, EActionSkillCancelFlag IncomingType) const
 {
 	const AActionCharacterBase* OwnerCharacter = GetOwnerCharacter();

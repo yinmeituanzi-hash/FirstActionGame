@@ -10,12 +10,10 @@
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "BrainComponent.h"
-#include "Combat/ActionCombatLibrary.h"
-#include "Combat/ActionCombatNotifies.h"
+#include "Combat/Skills/ActionSkillComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
-#include "Kismet/GameplayStatics.h"
 #include "Logging/LogMacros.h"
 #include "TimerManager.h"
 
@@ -40,29 +38,6 @@ AActionMonsterCharacter::AActionMonsterCharacter(const FObjectInitializer& Objec
 	// Sprint 4-B++ Day 5：挂上"耳朵"。BeginPlay 时会自动注册到 UAINoiseSubsystem。
 	// 任意继承 AActionMonsterCharacter 的怪默认就具备听觉，不需要每个 BP 手动加。
 	NoiseListener = CreateDefaultSubobject<UNoiseListenerComponent>(TEXT("NoiseListener"));
-}
-
-void AActionMonsterCharacter::BeginPlay()
-{
-	Super::BeginPlay();
-
-	// 绑 OnPlayMontageNotifyBegin 一次。等 AnimInstance 真的存在时才绑。
-	// 玩家走 UMontageActionFeature 同款机制，怪物没有 Feature 系统所以 Character 直接绑。
-	if (USkeletalMeshComponent* MeshComp = GetMesh())
-	{
-		if (UAnimInstance* AnimInstance = MeshComp->GetAnimInstance())
-		{
-			if (!bMontageNotifyBound)
-			{
-				AnimInstance->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &AActionMonsterCharacter::OnAnyMontageNotifyBegin);
-				bMontageNotifyBound = true;
-			}
-		}
-		else
-		{
-			UE_LOG(LogActionMonsterCharacter, Warning, TEXT("ActionMonsterCharacter::BeginPlay: AnimInstance not ready, AttackHitCheck Notify won't be routed."));
-		}
-	}
 }
 
 void AActionMonsterCharacter::ApplyDamage(float InDamage)
@@ -158,168 +133,16 @@ void AActionMonsterCharacter::Die()
 	}
 }
 
-void AActionMonsterCharacter::StartMonsterAttack()
-{
-	if (!CanAttack())
-	{
-		UE_LOG(LogActionMonsterCharacter, Warning, TEXT("ActionMonsterCharacter: StartMonsterAttack blocked because character cannot attack."));
-		return;
-	}
-
-	// 攻击中或冷却中：直接拒绝。BTTask 会按 IsAttacking + Cooldown 判断后再调，正常情况
-	// 走不到这里；保留这层兜底是为了"被外部脚本误调"也不会瞬连乱挥。
-	if (IsAttacking())
-	{
-		UE_LOG(LogActionMonsterCharacter, Verbose, TEXT("ActionMonsterCharacter: StartMonsterAttack ignored — attack already in flight."));
-		return;
-	}
-	if (GetAttackCooldownRemaining() > 0.0f)
-	{
-		UE_LOG(
-			LogActionMonsterCharacter,
-			Verbose,
-			TEXT("ActionMonsterCharacter: StartMonsterAttack ignored — cooldown remaining %.2fs."),
-			GetAttackCooldownRemaining());
-		return;
-	}
-
-	// 必须有 Montage 才能开打。Montage 是动作游戏怪物攻击的基础需求。
-	// 没配的话 AI 会反复尝试调用并失败，BT 会一直退回 MoveToTarget，玩家
-	// 会看到怪贴脸不动；这样的明显错误比"无声兜底"更容易暴露配置问题。
-	if (MonsterAttackMontage == nullptr)
-	{
-		UE_LOG(LogActionMonsterCharacter, Warning, TEXT("ActionMonsterCharacter: StartMonsterAttack failed — MonsterAttackMontage is not configured."));
-		return;
-	}
-	if (GetMesh() == nullptr || GetMesh()->GetAnimInstance() == nullptr)
-	{
-		UE_LOG(LogActionMonsterCharacter, Warning, TEXT("ActionMonsterCharacter: StartMonsterAttack failed — Mesh / AnimInstance not ready."));
-		return;
-	}
-
-	UWorld* World = GetWorld();
-	if (World == nullptr)
-	{
-		return;
-	}
-
-	const float PlayedLength = PlayAnimMontage(MonsterAttackMontage);
-	if (PlayedLength <= 0.0f)
-	{
-		UE_LOG(LogActionMonsterCharacter, Warning, TEXT("ActionMonsterCharacter: PlayAnimMontage returned 0, attack aborted."));
-		return;
-	}
-
-	bAttackInFlight = true;
-	LastAttackStartTime = World->GetTimeSeconds();
-	HitActorsThisAttack.Reset();  // 新一段攻击：清掉上一段的命中记录
-	SetActionState(EActionCharacterState::Attacking);
-
-	// Montage 整体播完后清状态。注意 BlendOut 阶段也算在内，所以收尾会比 PlayedLength 略晚。
-	if (UAnimInstance* AnimInst = GetMesh()->GetAnimInstance())
-	{
-		FOnMontageEnded EndedDelegate;
-		EndedDelegate.BindUObject(this, &AActionMonsterCharacter::OnAttackMontageEnded);
-		AnimInst->Montage_SetEndDelegate(EndedDelegate, MonsterAttackMontage);
-	}
-
-	UE_LOG(
-		LogActionMonsterCharacter,
-		Log,
-		TEXT("ActionMonsterCharacter: Started attack montage. Length=%.2fs (waiting for AttackHitCheck Notify)"),
-		PlayedLength);
-}
-
-void AActionMonsterCharacter::OnAnyMontageNotifyBegin(FName NotifyName, const FBranchingPointNotifyPayload& /*Payload*/)
-{
-	// 只处理"我们正在播攻击 Montage 期间"的 AttackHitCheck Notify。
-	// 其他 Montage（受击 / 死亡 / 起身）即使带同名 Notify 也不会触发命中。
-	if (!bAttackInFlight || NotifyName != ActionCombatNotifies::AttackHitCheck)
-	{
-		return;
-	}
-	HandleAttackHitCheckNotify();
-}
-
-void AActionMonsterCharacter::HandleAttackHitCheckNotify()
-{
-	if (IsDead())
-	{
-		return;
-	}
-
-	// HitContext 模板：填入所有"攻击者一侧决定"的字段。
-	// Library 会复制此模板用于每个被命中目标，并自动填 Attacker / HitLocation / HitDirection。
-	FHitContext Template;
-	Template.ReactType = MonsterAttackReactType;
-	Template.DamageAmount = GetAttackPower();
-	Template.FeedbackScale = MonsterAttackFeedbackScale;
-	Template.bRotateToAttacker = bMonsterAttackRotateVictimToAttacker;
-	Template.HitFlyXYStrength = MonsterAttackHitFlyXYStrength;
-	Template.HitFlyZStrength = MonsterAttackHitFlyZStrength;
-	Template.bUseRagdoll = bMonsterAttackUseRagdoll;
-
-	FSphereAttackHitParams Params;
-	Params.Attacker = this;
-	Params.Center = GetActorLocation() + GetActorForwardVector() * HitCheckForwardOffset;
-	Params.Radius = HitCheckRadius;
-	// TargetClassFilter 用 AActionCharacterBase 而不是只玩家：未来加同伴 / 中立怪都自动覆盖。
-	Params.TargetClassFilter = AActionCharacterBase::StaticClass();
-	Params.HitContextTemplate = Template;
-	Params.HitLocationBackstep = MonsterAttackHitLocationBackstep;
-	Params.bDrawDebugSphere = bDrawDebugHitSphere;
-	Params.DebugDrawDuration = 1.0f;
-
-	const int32 HitCount = UActionCombatLibrary::PerformSphereAttackHit(this, Params, HitActorsThisAttack);
-	UE_LOG(
-		LogActionMonsterCharacter,
-		Verbose,
-		TEXT("ActionMonsterCharacter: AttackHitCheck Notify hit %d target(s)."),
-		HitCount);
-}
-
-void AActionMonsterCharacter::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted)
-{
-	if (Montage != MonsterAttackMontage)
-	{
-		return;
-	}
-	UE_LOG(
-		LogActionMonsterCharacter,
-		Verbose,
-		TEXT("ActionMonsterCharacter: Attack montage ended. Interrupted=%s"),
-		bInterrupted ? TEXT("true") : TEXT("false"));
-	FinishMonsterAttack();
-}
-
-void AActionMonsterCharacter::FinishMonsterAttack()
-{
-	bAttackInFlight = false;
-	HitActorsThisAttack.Reset();
-
-	// 攻击结束后回 Idle，前提是没有切到其他状态（受击/死亡）。
-	if (CurrentActionState == EActionCharacterState::Attacking)
-	{
-		SetActionState(EActionCharacterState::Idle);
-	}
-}
-
 // ---------- AI 接口 ----------
 
 bool AActionMonsterCharacter::IsAttacking() const
 {
-	return bAttackInFlight;
-}
-
-float AActionMonsterCharacter::GetAttackCooldownRemaining() const
-{
-	const UWorld* World = GetWorld();
-	if (World == nullptr || LastAttackStartTime < 0.0f)
+	if (const UActionSkillComponent* SkillComp = GetActionSkillComponent())
 	{
-		return 0.0f;
+		return SkillComp->IsUsingSkill();
 	}
-	const float Elapsed = World->GetTimeSeconds() - LastAttackStartTime;
-	return FMath::Max(0.0f, AttackCooldown - Elapsed);
+
+	return false;
 }
 
 float AActionMonsterCharacter::GetDistance2DTo(const AActor* Other) const
