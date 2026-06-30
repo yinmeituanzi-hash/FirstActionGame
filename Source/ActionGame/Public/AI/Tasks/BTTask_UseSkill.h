@@ -12,10 +12,11 @@ struct FBTUseSkillMemory
 
 	float ElapsedTime = 0.0f;
 	bool bSkillStarted = false;
+	FName StartedSkillId = NAME_None;
 };
 
 /**
- * 行为树技能节点。
+ * 行为树技能释放节点。
  *
  * BT 只负责选择 SkillId、传入目标并等待技能结束；具体 Montage、命中、特效、冷却都归 SkillSystem。
  */
@@ -31,15 +32,23 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Action|AI")
 	FName SkillId = NAME_None;
 
-	/** 从 Blackboard 读取目标并作为 OptionalTarget 传给 SkillComponent。 */
+	/** true 时从 Blackboard 读取 SkillId，适合配合 BTService_PickCombatSkill 使用。 */
+	UPROPERTY(EditAnywhere, Category = "Action|AI")
+	bool bUseBlackboardSkillId = false;
+
+	/** Blackboard Name Key，默认读取 SelectedSkillId。 */
+	UPROPERTY(EditAnywhere, Category = "Blackboard", meta = (EditCondition = "bUseBlackboardSkillId"))
+	FBlackboardKeySelector SkillIdKey;
+
+	/** 从 Blackboard 读取目标，并作为 OptionalTarget 传给 SkillComponent。 */
 	UPROPERTY(EditAnywhere, Category = "Blackboard")
 	FBlackboardKeySelector TargetActorKey;
 
-	/** 等待技能启动/结束的最大时间。超时会让 BT 继续，避免行为树卡死。 */
+	/** 等待技能启动 / 结束的最大时间。超时会让 BT 继续，避免行为树卡死。 */
 	UPROPERTY(EditAnywhere, Category = "Action|AI", meta = (ClampMin = "0.5"))
 	float MaxExecutionTime = 4.0f;
 
-	/** Task 被外部 Abort 时是否强制停止当前技能。默认 false：攻击挥出后即使目标离开范围也让动作自然收完。 */
+	/** Task 被外部 Abort 时是否强制停止当前技能。默认 false：技能已出手后即使目标离开范围，也让动作自然收完。 */
 	UPROPERTY(EditAnywhere, Category = "Action|AI")
 	bool bStopSkillOnAbort = false;
 
@@ -52,6 +61,7 @@ protected:
 	virtual FString GetStaticDescription() const override;
 
 private:
+	FName ResolveSkillId(const UBehaviorTreeComponent& OwnerComp) const;
 	AActor* GetBlackboardTarget(const UBehaviorTreeComponent& OwnerComp) const;
-	bool TryStartSkill(UBehaviorTreeComponent& OwnerComp, FBTUseSkillMemory& Memory) const;
+	bool TryStartSkill(UBehaviorTreeComponent& OwnerComp, FBTUseSkillMemory& Memory, FName ResolvedSkillId) const;
 };

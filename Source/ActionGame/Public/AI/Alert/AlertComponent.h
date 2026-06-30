@@ -36,6 +36,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Action|AI|Alert")
 	void SetAlertState(EAIAlertState NewState);
 
+	/** 临时覆盖警戒状态给出的移动速度。用于 CombatMove / 特殊 BT 分支，Clear 后会恢复当前 AlertState 的速度。 */
+	UFUNCTION(BlueprintCallable, Category = "Action|AI|Alert|Movement")
+	void SetMovementSpeedOverride(FName Source, float MaxWalkSpeed);
+
+	UFUNCTION(BlueprintCallable, Category = "Action|AI|Alert|Movement")
+	void ClearMovementSpeedOverride(FName Source);
+
 	UFUNCTION(BlueprintPure, Category = "Action|AI|Alert")
 	FVector GetLastNoiseLocation() const { return LastNoiseLocation; }
 
@@ -87,6 +94,9 @@ private:
 
 	float LastAlertStateChangeTime = -1000.0f;
 	float LastAlertBroadcastTime = -1000.0f;
+	FName MovementSpeedOverrideSource = NAME_None;
+	float MovementSpeedOverride = 0.0f;
+	bool bHasMovementSpeedOverride = false;
 
 	void ApplyAlertStateMovementSettings();
 };

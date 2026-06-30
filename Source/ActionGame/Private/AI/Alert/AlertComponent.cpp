@@ -98,6 +98,37 @@ void UAlertComponent::SetAlertState(EAIAlertState NewState)
 	OnAlertStateChanged.Broadcast(OldState, NewState);
 }
 
+void UAlertComponent::SetMovementSpeedOverride(FName Source, float MaxWalkSpeed)
+{
+	if (Source.IsNone() || MaxWalkSpeed <= 0.0f)
+	{
+		return;
+	}
+
+	MovementSpeedOverrideSource = Source;
+	MovementSpeedOverride = MaxWalkSpeed;
+	bHasMovementSpeedOverride = true;
+	ApplyAlertStateMovementSettings();
+}
+
+void UAlertComponent::ClearMovementSpeedOverride(FName Source)
+{
+	if (!bHasMovementSpeedOverride)
+	{
+		return;
+	}
+
+	if (!Source.IsNone() && MovementSpeedOverrideSource != Source)
+	{
+		return;
+	}
+
+	MovementSpeedOverrideSource = NAME_None;
+	MovementSpeedOverride = 0.0f;
+	bHasMovementSpeedOverride = false;
+	ApplyAlertStateMovementSettings();
+}
+
 void UAlertComponent::SetLastNoiseLocation(const FVector& InLocation)
 {
 	LastNoiseLocation = InLocation;
@@ -228,6 +259,11 @@ void UAlertComponent::ApplyAlertStateMovementSettings()
 	default:
 		TargetSpeed = IdleMaxWalkSpeed;
 		break;
+	}
+
+	if (bHasMovementSpeedOverride && MovementSpeedOverride > 0.0f)
+	{
+		TargetSpeed = MovementSpeedOverride;
 	}
 
 	Movement->MaxWalkSpeed = TargetSpeed;

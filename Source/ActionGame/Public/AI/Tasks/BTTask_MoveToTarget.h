@@ -5,13 +5,10 @@
 #include "BTTask_MoveToTarget.generated.h"
 
 /**
- * 怪物移动到 Blackboard 目标位置/Actor 的薄包装。
+ * 怪物移动到 Blackboard 目标位置 / Actor 的薄包装。
  *
- * 为什么不直接在 BT 里用 `MoveTo`：
- *  1. 默认绑到我们约定的 BB Key 名（`TargetActor`），编辑器配置时不用每次手动选。
- *  2. 可选 `bUseAttackRangeAsAcceptanceRadius`：自动把"攻击距离 - Buffer"作为停止距离。
- *     这样 Character 端调整 MonsterAttackRange 时 BT 不需要跟着改。
- *  3. 后续 Sprint 4-B+ / 4-C+ 可以扩"追击超时"、"目标过远改用 EQS 选位"等逻辑。
+ * 这里保留自定义 Task，是为了把项目约定的目标 Key、技能释放距离、追击停止距离集中在 C++ 里。
+ * 后续如果接 EQS / 战斗走位，也能继续复用这个入口。
  */
 UCLASS()
 class ACTIONGAME_API UBTTask_MoveToTarget : public UBTTask_MoveTo
@@ -21,23 +18,25 @@ class ACTIONGAME_API UBTTask_MoveToTarget : public UBTTask_MoveTo
 public:
 	UBTTask_MoveToTarget();
 
+	/** 优先使用 PickCombatSkill 写入的 SelectedSkillPreferredRange 作为停止距离。 */
+	UPROPERTY(EditAnywhere, Category = "Action|AI")
+	bool bUseSelectedSkillPreferredRange = true;
+
+	UPROPERTY(EditAnywhere, Category = "Blackboard", meta = (EditCondition = "bUseSelectedSkillPreferredRange"))
+	FBlackboardKeySelector SelectedSkillPreferredRangeKey;
+
 	/**
 	 * 是否用 Character.MonsterAttackRange - Buffer 作为 AcceptableRadius。
-	 * - true（默认）：保证停在攻击距离内一点点，让后续 UseSkill 节点一进来就在范围内。
-	 * - false：使用 BT 节点上配置的 AcceptableRadius。
-	 * TODO: 技能释放距离接入选招 Service 后，这里应改为读取当前选中 Skill 的 PreferredReleaseRange。
+	 * 注意：这是没有 SelectedSkillPreferredRange 时的过渡 fallback。
 	 */
 	UPROPERTY(EditAnywhere, Category = "Action|AI")
 	bool bUseAttackRangeAsAcceptanceRadius = true;
 
-	/**
-	 * 用攻击距离作为停止距离时的余量（cm）。
-	 * 例：AttackRange=400, Buffer=50 → AcceptanceRadius=350。
-	 * 留 Buffer 是为了"刚到边缘就停"，避免轻微目标位移导致马上又脱出。
-	 */
+	/** 停止距离余量，避免刚到技能边缘就停下，目标轻微位移后马上脱出释放范围。 */
 	UPROPERTY(EditAnywhere, Category = "Action|AI", meta = (EditCondition = "bUseAttackRangeAsAcceptanceRadius", ClampMin = "0.0"))
 	float AttackRangeBuffer = 50.0f;
 
 protected:
+	virtual void InitializeFromAsset(UBehaviorTree& Asset) override;
 	virtual EBTNodeResult::Type ExecuteTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory) override;
 };

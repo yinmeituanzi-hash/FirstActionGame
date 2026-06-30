@@ -5,6 +5,7 @@
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
 #include "BehaviorTree/BlackboardComponent.h"
+#include "BehaviorTree/Blackboard/BlackboardKeyType_Name.h"
 #include "BehaviorTree/Blackboard/BlackboardKeyType_Object.h"
 #include "Char/ActionCharacterBase.h"
 #include "Combat/Skills/ActionSkillComponent.h"
@@ -16,6 +17,9 @@ UBTTask_UseSkill::UBTTask_UseSkill()
 
 	TargetActorKey.SelectedKeyName = ActionAIBlackboardKeys::TargetActor;
 	TargetActorKey.AddObjectFilter(this, GET_MEMBER_NAME_CHECKED(UBTTask_UseSkill, TargetActorKey), AActor::StaticClass());
+
+	SkillIdKey.SelectedKeyName = ActionAIBlackboardKeys::SelectedSkillId;
+	SkillIdKey.AddNameFilter(this, GET_MEMBER_NAME_CHECKED(UBTTask_UseSkill, SkillIdKey));
 }
 
 void UBTTask_UseSkill::InitializeFromAsset(UBehaviorTree& Asset)
@@ -25,6 +29,7 @@ void UBTTask_UseSkill::InitializeFromAsset(UBehaviorTree& Asset)
 	if (UBlackboardData* BBAsset = GetBlackboardAsset())
 	{
 		TargetActorKey.ResolveSelectedKey(*BBAsset);
+		SkillIdKey.ResolveSelectedKey(*BBAsset);
 	}
 }
 
@@ -33,8 +38,10 @@ EBTNodeResult::Type UBTTask_UseSkill::ExecuteTask(UBehaviorTreeComponent& OwnerC
 	FBTUseSkillMemory* Memory = reinterpret_cast<FBTUseSkillMemory*>(NodeMemory);
 	Memory->ElapsedTime = 0.0f;
 	Memory->bSkillStarted = false;
+	Memory->StartedSkillId = NAME_None;
 
-	if (SkillId.IsNone())
+	const FName ResolvedSkillId = ResolveSkillId(OwnerComp);
+	if (ResolvedSkillId.IsNone())
 	{
 		return EBTNodeResult::Failed;
 	}
@@ -48,18 +55,19 @@ EBTNodeResult::Type UBTTask_UseSkill::ExecuteTask(UBehaviorTreeComponent& OwnerC
 	}
 
 	AActor* TargetActor = GetBlackboardTarget(OwnerComp);
-	if (!SkillComponent->IsTargetInSkillReleaseRange(SkillId, TargetActor))
+	if (!SkillComponent->IsTargetInSkillReleaseRange(ResolvedSkillId, TargetActor))
 	{
 		return EBTNodeResult::Failed;
 	}
 
-	// 010 的 UseSkill Task 也是先做可用性检查，失败就立刻 Failed。
-	// 冷却中还没真正启动技能时不能卡在本节点，否则目标跑远后会原地放空技能。
-	if (!SkillComponent->CanUseSkill(SkillId, EActionSkillCancelFlag::Skill))
+	// 010 的 UseSkill Task 也是先做可用性检查，失败就立即 Failed。
+	// 冷却中且还没真正启动技能时，不能卡在本节点，否则目标跑远后会原地放空技能。
+	if (!SkillComponent->CanUseSkill(ResolvedSkillId, EActionSkillCancelFlag::Skill))
 	{
 		return EBTNodeResult::Failed;
 	}
-	return TryStartSkill(OwnerComp, *Memory) ? EBTNodeResult::InProgress : EBTNodeResult::Failed;
+
+	return TryStartSkill(OwnerComp, *Memory, ResolvedSkillId) ? EBTNodeResult::InProgress : EBTNodeResult::Failed;
 }
 
 void UBTTask_UseSkill::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, float DeltaSeconds)
@@ -78,14 +86,14 @@ void UBTTask_UseSkill::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMe
 
 	if (!Memory->bSkillStarted)
 	{
-		if (!TryStartSkill(OwnerComp, *Memory))
+		if (!TryStartSkill(OwnerComp, *Memory, ResolveSkillId(OwnerComp)))
 		{
 			FinishLatentTask(OwnerComp, EBTNodeResult::Failed);
 		}
 		return;
 	}
 
-	if (!SkillComponent->IsUsingSkill() || SkillComponent->GetCurrentSkillId() != SkillId)
+	if (!SkillComponent->IsUsingSkill() || SkillComponent->GetCurrentSkillId() != Memory->StartedSkillId)
 	{
 		FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded);
 		return;
@@ -110,7 +118,7 @@ EBTNodeResult::Type UBTTask_UseSkill::AbortTask(UBehaviorTreeComponent& OwnerCom
 			{
 				if (UActionSkillComponent* SkillComponent = OwnerCharacter->GetActionSkillComponent())
 				{
-					if (SkillComponent->GetCurrentSkillId() == SkillId)
+					if (SkillComponent->GetCurrentSkillId() == Memory->StartedSkillId)
 					{
 						SkillComponent->StopSkill(EActionSkillStopReason::Forced);
 					}
@@ -120,6 +128,22 @@ EBTNodeResult::Type UBTTask_UseSkill::AbortTask(UBehaviorTreeComponent& OwnerCom
 	}
 
 	return EBTNodeResult::Aborted;
+}
+
+FName UBTTask_UseSkill::ResolveSkillId(const UBehaviorTreeComponent& OwnerComp) const
+{
+	if (!bUseBlackboardSkillId)
+	{
+		return SkillId;
+	}
+
+	const UBlackboardComponent* BB = OwnerComp.GetBlackboardComponent();
+	if (BB == nullptr || SkillIdKey.SelectedKeyName == NAME_None)
+	{
+		return NAME_None;
+	}
+
+	return BB->GetValueAsName(SkillIdKey.SelectedKeyName);
 }
 
 AActor* UBTTask_UseSkill::GetBlackboardTarget(const UBehaviorTreeComponent& OwnerComp) const
@@ -133,7 +157,7 @@ AActor* UBTTask_UseSkill::GetBlackboardTarget(const UBehaviorTreeComponent& Owne
 	return Cast<AActor>(BB->GetValueAsObject(TargetActorKey.SelectedKeyName));
 }
 
-bool UBTTask_UseSkill::TryStartSkill(UBehaviorTreeComponent& OwnerComp, FBTUseSkillMemory& Memory) const
+bool UBTTask_UseSkill::TryStartSkill(UBehaviorTreeComponent& OwnerComp, FBTUseSkillMemory& Memory, FName ResolvedSkillId) const
 {
 	AAIController* AIOwner = OwnerComp.GetAIOwner();
 	AActionCharacterBase* OwnerCharacter = AIOwner != nullptr ? Cast<AActionCharacterBase>(AIOwner->GetCharacter()) : nullptr;
@@ -143,31 +167,36 @@ bool UBTTask_UseSkill::TryStartSkill(UBehaviorTreeComponent& OwnerComp, FBTUseSk
 		return false;
 	}
 
-	if (!SkillComponent->CanUseSkill(SkillId, EActionSkillCancelFlag::Skill))
+	if (ResolvedSkillId.IsNone() || !SkillComponent->CanUseSkill(ResolvedSkillId, EActionSkillCancelFlag::Skill))
 	{
 		return false;
 	}
 
 	AActor* TargetActor = GetBlackboardTarget(OwnerComp);
-	if (!SkillComponent->IsTargetInSkillReleaseRange(SkillId, TargetActor))
+	if (!SkillComponent->IsTargetInSkillReleaseRange(ResolvedSkillId, TargetActor))
 	{
 		return false;
 	}
 
-	if (!SkillComponent->UseSkill(SkillId, TargetActor, EActionSkillCancelFlag::Skill))
+	if (!SkillComponent->UseSkill(ResolvedSkillId, TargetActor, EActionSkillCancelFlag::Skill))
 	{
 		return false;
 	}
 
 	Memory.bSkillStarted = true;
+	Memory.StartedSkillId = ResolvedSkillId;
 	return true;
 }
 
 FString UBTTask_UseSkill::GetStaticDescription() const
 {
+	const FString SkillDesc = bUseBlackboardSkillId
+		? FString::Printf(TEXT("BB.%s"), *SkillIdKey.SelectedKeyName.ToString())
+		: SkillId.ToString();
+
 	return FString::Printf(
 		TEXT("UseSkill: %s\nTarget: %s\nTimeout: %.1fs"),
-		*SkillId.ToString(),
+		*SkillDesc,
 		*TargetActorKey.SelectedKeyName.ToString(),
 		MaxExecutionTime);
 }
