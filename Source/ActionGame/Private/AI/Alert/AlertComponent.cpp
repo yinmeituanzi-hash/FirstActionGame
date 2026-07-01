@@ -2,12 +2,12 @@
 
 #include "AI/ActionAIBlackboardKeys.h"
 #include "AI/Alert/AlertBroadcastSubsystem.h"
+#include "AI/Movement/AIMoveLogicComponent.h"
 #include "AIController.h"
 #include "BehaviorTree/BlackboardComponent.h"
 #include "Char/ActionCharacterBase.h"
 #include "Char/ActionMonsterCharacter.h"
 #include "Engine/World.h"
-#include "GameFramework/CharacterMovementComponent.h"
 #include "Logging/LogMacros.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogAlertComponent, Log, All);
@@ -96,37 +96,6 @@ void UAlertComponent::SetAlertState(EAIAlertState NewState)
 		*GetNameSafe(GetOwner()));
 
 	OnAlertStateChanged.Broadcast(OldState, NewState);
-}
-
-void UAlertComponent::SetMovementSpeedOverride(FName Source, float MaxWalkSpeed)
-{
-	if (Source.IsNone() || MaxWalkSpeed <= 0.0f)
-	{
-		return;
-	}
-
-	MovementSpeedOverrideSource = Source;
-	MovementSpeedOverride = MaxWalkSpeed;
-	bHasMovementSpeedOverride = true;
-	ApplyAlertStateMovementSettings();
-}
-
-void UAlertComponent::ClearMovementSpeedOverride(FName Source)
-{
-	if (!bHasMovementSpeedOverride)
-	{
-		return;
-	}
-
-	if (!Source.IsNone() && MovementSpeedOverrideSource != Source)
-	{
-		return;
-	}
-
-	MovementSpeedOverrideSource = NAME_None;
-	MovementSpeedOverride = 0.0f;
-	bHasMovementSpeedOverride = false;
-	ApplyAlertStateMovementSettings();
 }
 
 void UAlertComponent::SetLastNoiseLocation(const FVector& InLocation)
@@ -240,31 +209,8 @@ void UAlertComponent::ApplyAlertStateMovementSettings()
 		return;
 	}
 
-	UCharacterMovementComponent* Movement = Monster->GetCharacterMovement();
-	if (Movement == nullptr)
+	if (UAIMoveLogicComponent* MoveLogic = Monster->GetAIMoveLogicComponent())
 	{
-		return;
+		MoveLogic->SetAlertState(AlertState);
 	}
-
-	float TargetSpeed = IdleMaxWalkSpeed;
-	switch (AlertState)
-	{
-	case EAIAlertState::Alert:
-		TargetSpeed = AlertMaxWalkSpeed;
-		break;
-	case EAIAlertState::Combat:
-		TargetSpeed = CombatMaxWalkSpeed;
-		break;
-	case EAIAlertState::Idle:
-	default:
-		TargetSpeed = IdleMaxWalkSpeed;
-		break;
-	}
-
-	if (bHasMovementSpeedOverride && MovementSpeedOverride > 0.0f)
-	{
-		TargetSpeed = MovementSpeedOverride;
-	}
-
-	Movement->MaxWalkSpeed = TargetSpeed;
 }

@@ -8,11 +8,12 @@
 class AActionMonsterCharacter;
 
 /**
-* 单体怪物警戒域
-* 该组件管控运行时警戒状态、可疑声响位置、状态移动速度，
-* 以及战斗警戒信号的收发逻辑。涉及人工智能警戒状态的相关系统，
-* 均应依托此组件实现功能，避免将怪物角色动作类臃肿化为警戒总接口。
-*/
+ * 单体怪物警戒组件。
+ *
+ * 只管理 AlertState、噪音位置、报警广播等“感知/警戒”数据。
+ * 移动速度、Strafe 标记和 BT 移动状态统一交给 UAIMoveLogicComponent，
+ * 避免 AlertComponent 变成角色移动总入口。
+ */
 UCLASS(ClassGroup = (Action), meta = (BlueprintSpawnableComponent))
 class ACTIONGAME_API UAlertComponent : public UActorComponent
 {
@@ -35,13 +36,6 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Action|AI|Alert")
 	void SetAlertState(EAIAlertState NewState);
-
-	/** 临时覆盖警戒状态给出的移动速度。用于 CombatMove / 特殊 BT 分支，Clear 后会恢复当前 AlertState 的速度。 */
-	UFUNCTION(BlueprintCallable, Category = "Action|AI|Alert|Movement")
-	void SetMovementSpeedOverride(FName Source, float MaxWalkSpeed);
-
-	UFUNCTION(BlueprintCallable, Category = "Action|AI|Alert|Movement")
-	void ClearMovementSpeedOverride(FName Source);
 
 	UFUNCTION(BlueprintPure, Category = "Action|AI|Alert")
 	FVector GetLastNoiseLocation() const { return LastNoiseLocation; }
@@ -71,15 +65,6 @@ private:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert", meta = (AllowPrivateAccess = "true"))
 	float LastNoiseTime = -1000.0f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert|Movement", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
-	float IdleMaxWalkSpeed = 100.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert|Movement", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
-	float AlertMaxWalkSpeed = 200.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert|Movement", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
-	float CombatMaxWalkSpeed = 400.0f;
-
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert", meta = (AllowPrivateAccess = "true", ClampMin = "0.0"))
 	float AlertChangeCooldown = 1.0f;
 
@@ -94,9 +79,6 @@ private:
 
 	float LastAlertStateChangeTime = -1000.0f;
 	float LastAlertBroadcastTime = -1000.0f;
-	FName MovementSpeedOverrideSource = NAME_None;
-	float MovementSpeedOverride = 0.0f;
-	bool bHasMovementSpeedOverride = false;
 
 	void ApplyAlertStateMovementSettings();
 };

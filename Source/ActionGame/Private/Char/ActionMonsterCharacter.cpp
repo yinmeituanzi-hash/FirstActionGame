@@ -2,6 +2,7 @@
 #include "AI/ActionMonsterAIController.h"
 #include "AI/Alert/AlertComponent.h"
 #include "AI/Budget/AIBudgetComponent.h"
+#include "AI/Movement/AIMoveLogicComponent.h"
 #include "AI/Noise/NoiseListenerComponent.h"
 #include "AI/Significance/AISignificanceComponent.h"
 #include "AIController.h"
@@ -32,6 +33,7 @@ AActionMonsterCharacter::AActionMonsterCharacter(const FObjectInitializer& Objec
 	CombatTeam = EActionCombatTeam::Monster;
 
 	AlertComponent = CreateDefaultSubobject<UAlertComponent>(TEXT("AlertComponent"));
+	AIMoveLogicComponent = CreateDefaultSubobject<UAIMoveLogicComponent>(TEXT("AIMoveLogicComponent"));
 	SignificanceComponent = CreateDefaultSubobject<UAISignificanceComponent>(TEXT("SignificanceComponent"));
 	BudgetComponent = CreateDefaultSubobject<UAIBudgetComponent>(TEXT("BudgetComponent"));
 

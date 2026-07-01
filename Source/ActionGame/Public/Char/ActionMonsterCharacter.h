@@ -8,6 +8,7 @@
 class UAnimMontage;
 class UAlertComponent;
 class UAIBudgetComponent;
+class UAIMoveLogicComponent;
 class UAISignificanceComponent;
 class UNoiseListenerComponent;
 struct FTimerHandle;
@@ -57,6 +58,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Action|AI|Alert")
 	UAlertComponent* GetAlertComponent() const { return AlertComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Action|AI|Movement")
+	UAIMoveLogicComponent* GetAIMoveLogicComponent() const { return AIMoveLogicComponent; }
 
 	UFUNCTION(BlueprintPure, Category = "Action|AI|Significance")
 	UAISignificanceComponent* GetSignificanceComponent() const { return SignificanceComponent; }
@@ -115,6 +119,10 @@ protected:
 	/** 拥有警戒状态、可疑位置、状态移动速度以及战斗播报响应 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|AI|Alert", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<UAlertComponent> AlertComponent;
+
+	/** 怪物移动意图和速度落地组件。Alert / BTTask / BTService 只写意图，速度和 Strafe 状态由它统一应用。 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|AI|Movement", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<UAIMoveLogicComponent> AIMoveLogicComponent;
 
 	/** 怪物重要度 / TickLOD 组件。Character 只持有组件，具体降级策略归组件自身维护。 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|AI|Significance", meta = (AllowPrivateAccess = "true"))

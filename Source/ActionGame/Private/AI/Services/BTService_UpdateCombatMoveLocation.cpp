@@ -1,7 +1,6 @@
 #include "AI/Services/BTService_UpdateCombatMoveLocation.h"
 
 #include "AI/ActionAIBlackboardKeys.h"
-#include "AI/Alert/AlertComponent.h"
 #include "AIController.h"
 #include "BehaviorTree/BehaviorTree.h"
 #include "BehaviorTree/BehaviorTreeComponent.h"
@@ -10,18 +9,10 @@
 #include "BehaviorTree/Blackboard/BlackboardKeyType_Object.h"
 #include "BehaviorTree/Blackboard/BlackboardKeyType_Vector.h"
 #include "DrawDebugHelpers.h"
-#include "Char/ActionMonsterCharacter.h"
 #include "GameFramework/Actor.h"
-#include "GameFramework/Character.h"
-#include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/Pawn.h"
 #include "NavigationPath.h"
 #include "NavigationSystem.h"
-
-namespace
-{
-	const FName CombatMoveSpeedOverrideSource(TEXT("CombatMove"));
-}
 
 UBTService_UpdateCombatMoveLocation::UBTService_UpdateCombatMoveLocation()
 {
@@ -29,7 +20,6 @@ UBTService_UpdateCombatMoveLocation::UBTService_UpdateCombatMoveLocation()
 	Interval = 0.2f;
 	RandomDeviation = 0.03f;
 	bNotifyBecomeRelevant = true;
-	bNotifyCeaseRelevant = true;
 
 	TargetActorKey.SelectedKeyName = ActionAIBlackboardKeys::TargetActor;
 	TargetActorKey.AddObjectFilter(this, GET_MEMBER_NAME_CHECKED(UBTService_UpdateCombatMoveLocation, TargetActorKey), AActor::StaticClass());
@@ -61,22 +51,11 @@ void UBTService_UpdateCombatMoveLocation::OnBecomeRelevant(UBehaviorTreeComponen
 	Memory->TimeUntilNextUpdate = 0.0f;
 	Memory->RemainingReverseTime = ReverseTime;
 	Memory->FinalMoveRadius = -1.0f;
-	Memory->PreviousMaxWalkSpeed = 0.0f;
 	Memory->InitialLocation = FVector::ZeroVector;
 	Memory->CurrentMoveLocation = FVector::ZeroVector;
 	Memory->DirectionSign = FMath::RandBool() ? 1 : -1;
 	Memory->bFirstUpdate = true;
-	Memory->bHasSpeedOverride = false;
 	Memory->bHasMoveLocation = false;
-
-	ApplySpeedOverride(OwnerComp, *Memory);
-}
-
-void UBTService_UpdateCombatMoveLocation::OnCeaseRelevant(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory)
-{
-	RestoreSpeedOverride(OwnerComp, *reinterpret_cast<FCombatMoveMemory*>(NodeMemory));
-
-	Super::OnCeaseRelevant(OwnerComp, NodeMemory);
 }
 
 void UBTService_UpdateCombatMoveLocation::TickNode(UBehaviorTreeComponent& OwnerComp, uint8* NodeMemory, float DeltaSeconds)
@@ -138,10 +117,9 @@ uint16 UBTService_UpdateCombatMoveLocation::GetInstanceMemorySize() const
 FString UBTService_UpdateCombatMoveLocation::GetStaticDescription() const
 {
 	return FString::Printf(
-		TEXT("AroundTarget: angle %.0f, reverse %.1fs, speed %.0f"),
+		TEXT("AroundTarget: angle %.0f, reverse %.1fs"),
 		StandardAngle,
-		ReverseTime,
-		bOverrideMaxWalkSpeed ? CombatMoveMaxWalkSpeed : -1.0f);
+		ReverseTime);
 }
 
 void UBTService_UpdateCombatMoveLocation::InitializeMoveRadius(UBehaviorTreeComponent& OwnerComp, FCombatMoveMemory& Memory) const
@@ -288,62 +266,4 @@ void UBTService_UpdateCombatMoveLocation::ResetUpdateInterval(FCombatMoveMemory&
 	const float ActualMin = FMath::Max(0.0f, MinUpdateInterval);
 	const float ActualMax = FMath::Max(ActualMin, MaxUpdateInterval);
 	Memory.TimeUntilNextUpdate = FMath::FRandRange(ActualMin, ActualMax);
-}
-
-void UBTService_UpdateCombatMoveLocation::ApplySpeedOverride(UBehaviorTreeComponent& OwnerComp, FCombatMoveMemory& Memory) const
-{
-	if (!bOverrideMaxWalkSpeed || CombatMoveMaxWalkSpeed <= 0.0f)
-	{
-		return;
-	}
-
-	AAIController* AIOwner = OwnerComp.GetAIOwner();
-	ACharacter* OwnerCharacter = AIOwner != nullptr ? AIOwner->GetCharacter() : nullptr;
-	if (AActionMonsterCharacter* Monster = Cast<AActionMonsterCharacter>(OwnerCharacter))
-	{
-		if (UAlertComponent* AlertComponent = Monster->GetAlertComponent())
-		{
-			AlertComponent->SetMovementSpeedOverride(CombatMoveSpeedOverrideSource, CombatMoveMaxWalkSpeed);
-			Memory.bHasSpeedOverride = true;
-			return;
-		}
-	}
-
-	UCharacterMovementComponent* Movement = OwnerCharacter != nullptr ? OwnerCharacter->GetCharacterMovement() : nullptr;
-	if (Movement == nullptr)
-	{
-		return;
-	}
-
-	Memory.PreviousMaxWalkSpeed = Movement->MaxWalkSpeed;
-	Memory.bHasSpeedOverride = true;
-	Movement->MaxWalkSpeed = CombatMoveMaxWalkSpeed;
-}
-
-void UBTService_UpdateCombatMoveLocation::RestoreSpeedOverride(UBehaviorTreeComponent& OwnerComp, FCombatMoveMemory& Memory) const
-{
-	if (!Memory.bHasSpeedOverride)
-	{
-		return;
-	}
-
-	AAIController* AIOwner = OwnerComp.GetAIOwner();
-	ACharacter* OwnerCharacter = AIOwner != nullptr ? AIOwner->GetCharacter() : nullptr;
-	if (AActionMonsterCharacter* Monster = Cast<AActionMonsterCharacter>(OwnerCharacter))
-	{
-		if (UAlertComponent* AlertComponent = Monster->GetAlertComponent())
-		{
-			AlertComponent->ClearMovementSpeedOverride(CombatMoveSpeedOverrideSource);
-			Memory.bHasSpeedOverride = false;
-			return;
-		}
-	}
-
-	UCharacterMovementComponent* Movement = OwnerCharacter != nullptr ? OwnerCharacter->GetCharacterMovement() : nullptr;
-	if (Movement != nullptr)
-	{
-		Movement->MaxWalkSpeed = Memory.PreviousMaxWalkSpeed;
-	}
-
-	Memory.bHasSpeedOverride = false;
 }
