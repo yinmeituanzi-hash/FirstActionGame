@@ -22,7 +22,7 @@ class ACTIONGAME_API UActionSkillObject : public UObject
 	GENERATED_BODY()
 
 public:
-	void InitFromData(AActionCharacterBase* InOwner, FName InSkillId, const FActionSkillRow& InSkillData);
+	void InitFromData(AActionCharacterBase* InOwner, FName InSkillId, const FSkillRow& InSkillData);
 
 	UFUNCTION(BlueprintPure, Category = "Action|Skill")
 	AActionCharacterBase* GetOwnerCharacter() const { return OwnerCharacter.Get(); }
@@ -31,7 +31,7 @@ public:
 	FName GetSkillId() const { return SkillId; }
 
 	UFUNCTION(BlueprintPure, Category = "Action|Skill")
-	FActionSkillRow GetSkillData() const { return SkillData; }
+	FSkillRow GetSkillData() const { return SkillData; }
 
 	UFUNCTION(BlueprintPure, Category = "Action|Skill")
 	bool IsInitialized() const { return bInitialized; }
@@ -47,7 +47,7 @@ public:
 
 	bool CanActivate() const;
 	void Activate(AActor* InTarget);
-	void Deactivate(EActionSkillStopReason Reason);
+	void Deactivate(ESkillStopReason Reason);
 	void TickCooldown(float DeltaTime);
 
 	/** 从 BeginNodeId 开始递归创建当前技能激活期间复用的节点池。 */
@@ -56,7 +56,7 @@ public:
 	UActionSkillNode* GetSkillNode(FName NodeId) const;
 
 	/** 当前技能配置决定哪些新动作类型可以打断它。 */
-	bool CanBeCancelledBy(EActionSkillCancelFlag IncomingType) const;
+	bool CanBeCancelledBy(ESkillCancelFlag IncomingType) const;
 
 	/** 当前技能节点内的命中去重集合。只在 Effect 明确要求节点级去重时使用。 */
 	TSet<TWeakObjectPtr<AActor>>& GetMutableHitActorsThisNode() { return HitActorsThisNode; }
@@ -70,7 +70,7 @@ private:
 	FName SkillId = NAME_None;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Skill", meta = (AllowPrivateAccess = "true"))
-	FActionSkillRow SkillData;
+	FSkillRow SkillData;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Skill", meta = (AllowPrivateAccess = "true"))
 	bool bInitialized = false;
@@ -90,7 +90,7 @@ private:
 	TMap<FName, TObjectPtr<UActionSkillNode>> NodeMap;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Skill", meta = (AllowPrivateAccess = "true"))
-	EActionSkillStopReason LastStopReason = EActionSkillStopReason::Normal;
+	ESkillStopReason LastStopReason = ESkillStopReason::Normal;
 
 	bool InitSkillNodeRecursive(
 		FName NodeId,

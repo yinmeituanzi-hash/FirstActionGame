@@ -3,7 +3,7 @@
 #include "CoreMinimal.h"
 #include "AI/Noise/AINoiseTypes.h"
 #include "Animation/AnimMontage.h"
-#include "Combat/Skills/ActionSkillCreature.h"
+#include "Combat/Skills/SkillCreatureTypes.h"
 #include "Combat/HitReact/HitReactTypes.h"
 #include "Engine/DataTable.h"
 #include "GameplayTagContainer.h"
@@ -15,10 +15,14 @@
  * 这些结构体主要用于 DataTable 配置。冷却、当前节点、已命中目标、
  * 已生成特效句柄等运行时状态属于 SkillObject / SkillComponent，
  * 不应该写回这些配置行。
+ *
+ * SkillCreature 层的类型集（枚举 / FSkillCreatureRow / Request / HitResult）
+ * 集中放在 Combat/Skills/SkillCreatureTypes.h，这里只承载 Skill / Node / Effect
+ * 三条主 Row。
  */
 
 UENUM(BlueprintType)
-enum class EActionSkillType : uint8
+enum class ESkillType : uint8
 {
 	NormalAttack UMETA(DisplayName = "Normal Attack"),
 	HeavyAttack UMETA(DisplayName = "Heavy Attack"),
@@ -28,7 +32,7 @@ enum class EActionSkillType : uint8
 };
 
 UENUM(BlueprintType, meta = (Bitflags, UseEnumValuesAsMaskValuesInEditor = "true"))
-enum class EActionSkillCancelFlag : uint8
+enum class ESkillCancelFlag : uint8
 {
 	None = 0 UMETA(Hidden),
 	NormalAttack = 1 << 0 UMETA(DisplayName = "Normal Attack"),
@@ -39,10 +43,10 @@ enum class EActionSkillCancelFlag : uint8
 	Ultimate = 1 << 5 UMETA(DisplayName = "Ultimate"),
 	Move = 1 << 6 UMETA(DisplayName = "Move")
 };
-ENUM_CLASS_FLAGS(EActionSkillCancelFlag);
+ENUM_CLASS_FLAGS(ESkillCancelFlag);
 
 UENUM(BlueprintType)
-enum class EActionSkillStopReason : uint8
+enum class ESkillStopReason : uint8
 {
 	Normal UMETA(DisplayName = "Normal"),
 	SkillCancel UMETA(DisplayName = "Skill Cancel"),
@@ -55,7 +59,7 @@ enum class EActionSkillStopReason : uint8
 };
 
 UENUM(BlueprintType)
-enum class EActionSkillEffectTiming : uint8
+enum class ESkillEffectTiming : uint8
 {
 	Enter UMETA(DisplayName = "Enter"),
 	Leave UMETA(DisplayName = "Leave"),
@@ -63,7 +67,7 @@ enum class EActionSkillEffectTiming : uint8
 };
 
 UENUM(BlueprintType)
-enum class EActionSkillEffectType : uint8
+enum class ESkillEffectType : uint8
 {
 	Damage UMETA(DisplayName = "Damage"),
 	SpawnCreature UMETA(DisplayName = "Spawn Creature"),
@@ -76,7 +80,7 @@ enum class EActionSkillEffectType : uint8
 };
 
 UENUM(BlueprintType)
-enum class EActionSkillTargetFilter : uint8
+enum class ESkillTargetFilter : uint8
 {
 	Sphere UMETA(DisplayName = "Sphere"),
 	Cone UMETA(DisplayName = "Cone"),
@@ -87,17 +91,8 @@ enum class EActionSkillTargetFilter : uint8
 	TargetActor UMETA(DisplayName = "Target Actor")
 };
 
-UENUM(BlueprintType)
-enum class EActionCreatureMoveMode : uint8
-{
-	Straight UMETA(DisplayName = "Straight"),
-	Homing UMETA(DisplayName = "Homing"),
-	Gravity UMETA(DisplayName = "Gravity"),
-	Static UMETA(DisplayName = "Static")
-};
-
 USTRUCT(BlueprintType)
-struct ACTIONGAME_API FActionSkillRow : public FTableRowBase
+struct ACTIONGAME_API FSkillRow : public FTableRowBase
 {
 	GENERATED_BODY()
 
@@ -108,7 +103,7 @@ struct ACTIONGAME_API FActionSkillRow : public FTableRowBase
 	FText DisplayName;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill")
-	EActionSkillType SkillType = EActionSkillType::Skill;
+	ESkillType SkillType = ESkillType::Skill;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill")
 	FName BeginNodeId = NAME_None;
@@ -150,7 +145,7 @@ struct ACTIONGAME_API FActionSkillRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill")
 	bool bBlockAttack = true;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill", meta = (Bitmask, BitmaskEnum = "/Script/ActionGame.EActionSkillCancelFlag"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill", meta = (Bitmask, BitmaskEnum = "/Script/ActionGame.ESkillCancelFlag"))
 	int32 AllowCancelBy = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill")
@@ -165,7 +160,7 @@ struct ACTIONGAME_API FActionSkillRow : public FTableRowBase
 
 /** 技能内部的一个可播放动作节点，通常对应一个 Montage 或 Montage Section。 */
 USTRUCT(BlueprintType)
-struct ACTIONGAME_API FActionSkillNodeRow : public FTableRowBase
+struct ACTIONGAME_API FSkillNodeRow : public FTableRowBase
 {
 	GENERATED_BODY()
 
@@ -215,7 +210,7 @@ struct ACTIONGAME_API FActionSkillNodeRow : public FTableRowBase
 
 /** 数据驱动的技能效果，可在进入节点、离开节点或指定 AnimNotify 时执行。 */
 USTRUCT(BlueprintType)
-struct ACTIONGAME_API FActionSkillEffectRow : public FTableRowBase
+struct ACTIONGAME_API FSkillEffectRow : public FTableRowBase
 {
 	GENERATED_BODY()
 
@@ -223,16 +218,16 @@ struct ACTIONGAME_API FActionSkillEffectRow : public FTableRowBase
 	FName EffectId = NAME_None;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
-	EActionSkillEffectTiming ExecuteTiming = EActionSkillEffectTiming::Notify;
+	ESkillEffectTiming ExecuteTiming = ESkillEffectTiming::Notify;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
 	FName NotifyName = NAME_None;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
-	EActionSkillEffectType EffectType = EActionSkillEffectType::Damage;
+	ESkillEffectType EffectType = ESkillEffectType::Damage;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
-	EActionSkillTargetFilter TargetFilter = EActionSkillTargetFilter::Sphere;
+	ESkillTargetFilter TargetFilter = ESkillTargetFilter::Sphere;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect", meta = (ClampMin = "0.0"))
 	float Radius = 120.0f;
@@ -290,8 +285,35 @@ struct ACTIONGAME_API FActionSkillEffectRow : public FTableRowBase
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
 	EAINoiseCategory NoiseCategory = EAINoiseCategory::Combat;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
+	// ===== SpawnCreature Effect 专用字段 =====
+
+	/** 引用的 SkillCreature Row Id。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect|SpawnCreature")
 	FName SpawnCreatureId = NAME_None;
+
+	/** 出生位置解析模式，Row 的 SpawnSocket 为兜底。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect|SpawnCreature")
+	ECreatureSpawnTargetMode SpawnMode = ECreatureSpawnTargetMode::SelfOffset;
+
+	/** SpawnMode = SourceSocket/WeaponSocket 时的 socket 名，为空则使用 Row 上的 SpawnSocket。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect|SpawnCreature")
+	FName SpawnSocket = NAME_None;
+
+	/** 相对偏移（Local：X 前, Y 右, Z 上），叠加在 Row.BornLocationOffset 之上。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect|SpawnCreature")
+	FVector SpawnOffset = FVector::ZeroVector;
+
+	/** 初始朝向解析模式。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect|SpawnCreature")
+	ECreatureDirectionMode DirectionMode = ECreatureDirectionMode::SourceForward;
+
+	/** 本次生成几发（散弹 / 多发预留）。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect|SpawnCreature", meta = (ClampMin = "1"))
+	int32 SpawnCount = 1;
+
+	/** 散射半角（度），围绕主方向左右均匀分布。 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect|SpawnCreature", meta = (ClampMin = "0.0", ClampMax = "180.0"))
+	float SpawnSpreadAngleDeg = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
 	FName VFXId = NAME_None;
@@ -311,47 +333,4 @@ struct ACTIONGAME_API FActionSkillEffectRow : public FTableRowBase
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Effect")
 	bool bDrawDebug = false;
-};
-
-/** 技能生成物配置，后续用于投射物、陷阱、范围场等。 */
-USTRUCT(BlueprintType)
-struct ACTIONGAME_API FActionSkillCreatureRow : public FTableRowBase
-{
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature")
-	FName CreatureId = NAME_None;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature")
-	TSubclassOf<AActionSkillCreature> ActorClass = nullptr;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature", meta = (ClampMin = "0.0"))
-	float LifeTime = 3.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature", meta = (ClampMin = "0.0"))
-	float InitialSpeed = 1200.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature", meta = (ClampMin = "0.0"))
-	float CollisionRadius = 30.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature")
-	EActionCreatureMoveMode MoveMode = EActionCreatureMoveMode::Straight;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature", meta = (ClampMin = "0.0"))
-	float HomingSpeed = 360.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature", meta = (ClampMin = "0.0"))
-	float HomingDelay = 0.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature")
-	float GravityScale = 0.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature")
-	FName HitEffectId = NAME_None;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature")
-	FName DestroyEffectId = NAME_None;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Action|Skill|Creature")
-	bool bDestroyOnHit = true;
 };

@@ -13,7 +13,7 @@ class UAnimMontage;
 class UDataTable;
 struct FBranchingPointNotifyPayload;
 
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FActionSkillStateChangedSignature, FName, SkillId, bool, bActive);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FSkillStateChangedSignature, FName, SkillId, bool, bActive);
 
 /**
  * 角色侧技能系统入口。
@@ -34,7 +34,7 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 	UPROPERTY(BlueprintAssignable, Category = "Action|Skill")
-	FActionSkillStateChangedSignature OnSkillStateChanged;
+	FSkillStateChangedSignature OnSkillStateChanged;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Skill|Data")
 	TObjectPtr<UDataTable> SkillDataTable = nullptr;
@@ -50,6 +50,9 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Action|Skill")
 	AActionCharacterBase* GetOwnerCharacter() const;
+
+	/** Day8：暴露给 SkillEffectLibrary，让 SkillCreatureSubsystem 惰性拿到 DataTable。 */
+	UDataTable* GetSkillCreatureDataTable() const { return SkillCreatureDataTable; }
 
 	UFUNCTION(BlueprintPure, Category = "Action|Skill")
 	bool IsUsingSkill() const { return CurrentSkillObject != nullptr; }
@@ -73,13 +76,13 @@ public:
 	bool IsTargetInSkillReleaseRange(FName SkillId, const AActor* TargetActor) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
-	bool CanUseSkill(FName SkillId, EActionSkillCancelFlag IncomingType = EActionSkillCancelFlag::Skill) const;
+	bool CanUseSkill(FName SkillId, ESkillCancelFlag IncomingType = ESkillCancelFlag::Skill) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
-	bool UseSkill(FName SkillId, AActor* OptionalTarget = nullptr, EActionSkillCancelFlag IncomingType = EActionSkillCancelFlag::Skill);
+	bool UseSkill(FName SkillId, AActor* OptionalTarget = nullptr, ESkillCancelFlag IncomingType = ESkillCancelFlag::Skill);
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
-	void StopSkill(EActionSkillStopReason Reason = EActionSkillStopReason::Normal);
+	void StopSkill(ESkillStopReason Reason = ESkillStopReason::Normal);
 
 	/** 后续由技能 AnimNotify 调用；Day1 先只打日志，验证事件链路。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
@@ -96,14 +99,14 @@ public:
 
 	/** 检查当前技能是否允许被某类新动作打断。 */
 	UFUNCTION(BlueprintPure, Category = "Action|Skill")
-	bool CheckCanCancelCurrentSkill(EActionSkillCancelFlag IncomingType) const;
+	bool CheckCanCancelCurrentSkill(ESkillCancelFlag IncomingType) const;
 
 	/** 如果当前有技能，按配置尝试打断它；没有技能时视为成功。 */
 	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
-	bool TryCancelCurrentSkill(EActionSkillCancelFlag IncomingType, EActionSkillStopReason Reason);
+	bool TryCancelCurrentSkill(ESkillCancelFlag IncomingType, ESkillStopReason Reason);
 
 	UFUNCTION(BlueprintPure, Category = "Action|Skill")
-	bool IsSkillCancelWindowOpen(EActionSkillCancelFlag IncomingType) const;
+	bool IsSkillCancelWindowOpen(ESkillCancelFlag IncomingType) const;
 
 	UFUNCTION(BlueprintCallable, Category = "Action|Skill")
 	void OpenSkillCancelWindow(
@@ -155,13 +158,13 @@ private:
 	void ConsumeComboInput();
 	bool CanAffordNodeCost(FName NodeId) const;
 	void PayNodeCost(FName NodeId);
-	const FActionSkillNodeRow* FindSkillNodeRow(FName NodeId) const;
+	const FSkillNodeRow* FindSkillNodeRow(FName NodeId) const;
 	UAnimInstance* GetOwnerAnimInstance() const;
 	bool PlayCurrentNodeMontage();
 	void StopActiveSkillMontage(float BlendOutTime = -1.0f);
 	void ClearSkillMontageDelegates(UAnimInstance* AnimInstance);
 	void DeactivateCurrentSkillNode();
-	void ApplyActiveSkillTags(const FActionSkillRow& SkillData);
+	void ApplyActiveSkillTags(const FSkillRow& SkillData);
 	void ClearActiveSkillTags();
 	void AddWindowTagCount(FGameplayTag Tag);
 	void RemoveWindowTagCount(FGameplayTag Tag);

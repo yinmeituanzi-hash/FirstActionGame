@@ -449,13 +449,13 @@ void AActionPlayerCharacter::OnAttackInput()
 			return;
 		}
 
-		if (!TryCancelCurrentSkillForInput(EActionSkillCancelFlag::NormalAttack, EActionSkillStopReason::SkillCancel))
+		if (!TryCancelCurrentSkillForInput(ESkillCancelFlag::NormalAttack, ESkillStopReason::SkillCancel))
 		{
 			return;
 		}
 	}
 
-	if (SkillComp->UseSkill(NormalAttackSkillId, nullptr, EActionSkillCancelFlag::NormalAttack))
+	if (SkillComp->UseSkill(NormalAttackSkillId, nullptr, ESkillCancelFlag::NormalAttack))
 	{
 		// 首段启动后消费本次输入，避免同一次点击在 ComboWindow 打开时又触发下一段。
 		if (InputBufferComponent != nullptr)
@@ -485,7 +485,7 @@ void AActionPlayerCharacter::OnDodgeInput()
 		return;
 	}
 
-	if (!TryCancelCurrentSkillForInput(EActionSkillCancelFlag::Dodge, EActionSkillStopReason::DodgeCancel))
+	if (!TryCancelCurrentSkillForInput(ESkillCancelFlag::Dodge, ESkillStopReason::DodgeCancel))
 	{
 		return;
 	}
@@ -508,7 +508,7 @@ void AActionPlayerCharacter::OnJumpInput()
 
 	if (JumpFeature != nullptr && JumpFeature->CanExecute())
 	{
-		if (!TryCancelCurrentSkillForInput(EActionSkillCancelFlag::Jump, EActionSkillStopReason::JumpCancel))
+		if (!TryCancelCurrentSkillForInput(ESkillCancelFlag::Jump, ESkillStopReason::JumpCancel))
 		{
 			return;
 		}
@@ -518,7 +518,7 @@ void AActionPlayerCharacter::OnJumpInput()
 	}
 	else
 	{
-		if (!TryCancelCurrentSkillForInput(EActionSkillCancelFlag::Jump, EActionSkillStopReason::JumpCancel))
+		if (!TryCancelCurrentSkillForInput(ESkillCancelFlag::Jump, ESkillStopReason::JumpCancel))
 		{
 			return;
 		}
@@ -640,7 +640,7 @@ void AActionPlayerCharacter::ClearCurrentActiveFeature(UActionFeatureBase* InFea
 		{
 			if (InputBufferComponent->HasValidInput(ActionPlayerInputNames::Dodge)
 				&& DodgeFeature != nullptr
-				&& TryCancelCurrentSkillForInput(EActionSkillCancelFlag::Dodge, EActionSkillStopReason::DodgeCancel)
+				&& TryCancelCurrentSkillForInput(ESkillCancelFlag::Dodge, ESkillStopReason::DodgeCancel)
 				&& DodgeFeature->CanExecute())
 			{
 				InputBufferComponent->ConsumeInput(ActionPlayerInputNames::Dodge);
@@ -651,7 +651,7 @@ void AActionPlayerCharacter::ClearCurrentActiveFeature(UActionFeatureBase* InFea
 			if (InputBufferComponent->HasValidInput(ActionPlayerInputNames::Attack)
 				&& SkillComp != nullptr
 				&& !NormalAttackSkillId.IsNone()
-				&& SkillComp->UseSkill(NormalAttackSkillId, nullptr, EActionSkillCancelFlag::NormalAttack))
+				&& SkillComp->UseSkill(NormalAttackSkillId, nullptr, ESkillCancelFlag::NormalAttack))
 			{
 				InputBufferComponent->ConsumeInput(ActionPlayerInputNames::Attack);
 				return;
@@ -660,7 +660,7 @@ void AActionPlayerCharacter::ClearCurrentActiveFeature(UActionFeatureBase* InFea
 	}
 }
 
-bool AActionPlayerCharacter::TryCancelCurrentSkillForInput(EActionSkillCancelFlag IncomingType, EActionSkillStopReason StopReason)
+bool AActionPlayerCharacter::TryCancelCurrentSkillForInput(ESkillCancelFlag IncomingType, ESkillStopReason StopReason)
 {
 	UActionSkillComponent* SkillComp = GetActionSkillComponent();
 	if (SkillComp == nullptr || !SkillComp->IsUsingSkill())
@@ -691,9 +691,9 @@ void AActionPlayerCharacter::TryMoveCancelCurrentSkill()
 
 	// 移动输入每帧触发。这里不能像攻击/闪避那样失败就 return，
 	// 否则 ReleaseMoveBlock 后的恢复段移动也会被误拦。是否真的能移动仍由 CanMove()/Block.Move 决定。
-	if (SkillComp->CheckCanCancelCurrentSkill(EActionSkillCancelFlag::Move))
+	if (SkillComp->CheckCanCancelCurrentSkill(ESkillCancelFlag::Move))
 	{
-		SkillComp->TryCancelCurrentSkill(EActionSkillCancelFlag::Move, EActionSkillStopReason::MoveCancel);
+		SkillComp->TryCancelCurrentSkill(ESkillCancelFlag::Move, ESkillStopReason::MoveCancel);
 	}
 }
 

@@ -13,47 +13,47 @@
 #include "Engine/DataTable.h"
 #include "Input/InputBufferComponent.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogActionSkill, Log, All);
+DEFINE_LOG_CATEGORY_STATIC(LogSkill, Log, All);
 
 namespace
 {
-	FGameplayTag GetSkillWindowTagForCancelFlag(EActionSkillCancelFlag IncomingType)
+	FGameplayTag GetSkillWindowTagForCancelFlag(ESkillCancelFlag IncomingType)
 	{
 		switch (IncomingType)
 		{
-		case EActionSkillCancelFlag::NormalAttack:
+		case ESkillCancelFlag::NormalAttack:
 			return ActionGameplayTags::Window_Skill_CanNormalAttackCancel;
-		case EActionSkillCancelFlag::HeavyAttack:
+		case ESkillCancelFlag::HeavyAttack:
 			return ActionGameplayTags::Window_Skill_CanHeavyAttackCancel;
-		case EActionSkillCancelFlag::Dodge:
+		case ESkillCancelFlag::Dodge:
 			return ActionGameplayTags::Window_Skill_CanDodgeCancel;
-		case EActionSkillCancelFlag::Skill:
+		case ESkillCancelFlag::Skill:
 			return ActionGameplayTags::Window_Skill_CanSkillCancel;
-		case EActionSkillCancelFlag::Jump:
+		case ESkillCancelFlag::Jump:
 			return ActionGameplayTags::Window_Skill_CanJumpCancel;
-		case EActionSkillCancelFlag::Ultimate:
+		case ESkillCancelFlag::Ultimate:
 			return ActionGameplayTags::Window_Skill_CanUltimateCancel;
-		case EActionSkillCancelFlag::Move:
+		case ESkillCancelFlag::Move:
 			return ActionGameplayTags::Window_Skill_CanMoveCancel;
 		default:
 			return FGameplayTag();
 		}
 	}
 
-	void ForEachCancelFlagInMask(int32 CancelWindowMask, TFunctionRef<void(EActionSkillCancelFlag)> Visitor)
+	void ForEachCancelFlagInMask(int32 CancelWindowMask, TFunctionRef<void(ESkillCancelFlag)> Visitor)
 	{
-		const EActionSkillCancelFlag Flags[] =
+		const ESkillCancelFlag Flags[] =
 		{
-			EActionSkillCancelFlag::NormalAttack,
-			EActionSkillCancelFlag::HeavyAttack,
-			EActionSkillCancelFlag::Dodge,
-			EActionSkillCancelFlag::Skill,
-			EActionSkillCancelFlag::Jump,
-			EActionSkillCancelFlag::Ultimate,
-			EActionSkillCancelFlag::Move
+			ESkillCancelFlag::NormalAttack,
+			ESkillCancelFlag::HeavyAttack,
+			ESkillCancelFlag::Dodge,
+			ESkillCancelFlag::Skill,
+			ESkillCancelFlag::Jump,
+			ESkillCancelFlag::Ultimate,
+			ESkillCancelFlag::Move
 		};
 
-		for (const EActionSkillCancelFlag Flag : Flags)
+		for (const ESkillCancelFlag Flag : Flags)
 		{
 			if ((CancelWindowMask & static_cast<int32>(Flag)) != 0)
 			{
@@ -132,7 +132,7 @@ bool UActionSkillComponent::GetSkillReleaseRange(FName SkillId, float& OutMinRan
 		return false;
 	}
 
-	const FActionSkillRow SkillData = SkillObject->GetSkillData();
+	const FSkillRow SkillData = SkillObject->GetSkillData();
 	if (!SkillData.bUseReleaseRange)
 	{
 		return false;
@@ -166,7 +166,7 @@ bool UActionSkillComponent::IsTargetInSkillReleaseRange(FName SkillId, const AAc
 	return Distance >= MinRange && Distance <= MaxRange;
 }
 
-bool UActionSkillComponent::CanUseSkill(FName SkillId, EActionSkillCancelFlag IncomingType) const
+bool UActionSkillComponent::CanUseSkill(FName SkillId, ESkillCancelFlag IncomingType) const
 {
 	const AActionCharacterBase* OwnerCharacter = GetOwnerCharacter();
 	const UActionSkillObject* SkillObject = GetSkillObject(SkillId);
@@ -196,18 +196,18 @@ bool UActionSkillComponent::CanUseSkill(FName SkillId, EActionSkillCancelFlag In
 	return true;
 }
 
-bool UActionSkillComponent::UseSkill(FName SkillId, AActor* OptionalTarget, EActionSkillCancelFlag IncomingType)
+bool UActionSkillComponent::UseSkill(FName SkillId, AActor* OptionalTarget, ESkillCancelFlag IncomingType)
 {
 	UActionSkillObject* SkillObject = GetSkillObject(SkillId);
 	if (!CanUseSkill(SkillId, IncomingType) || SkillObject == nullptr)
 	{
-		UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: UseSkill blocked. SkillId=%s"), *GetNameSafe(GetOwner()), *SkillId.ToString());
+		UE_LOG(LogSkill, Verbose, TEXT("SkillComponent[%s]: UseSkill blocked. SkillId=%s"), *GetNameSafe(GetOwner()), *SkillId.ToString());
 		return false;
 	}
 
 	if (CurrentSkillObject != nullptr)
 	{
-		StopSkill(EActionSkillStopReason::SkillCancel);
+		StopSkill(ESkillStopReason::SkillCancel);
 	}
 
 	SkillObject->Activate(OptionalTarget);
@@ -218,9 +218,9 @@ bool UActionSkillComponent::UseSkill(FName SkillId, AActor* OptionalTarget, EAct
 
 	if (!SkillObject->InitSkillNodes(this, SkillNodeDataTable, SkillEffectDataTable))
 	{
-		SkillObject->Deactivate(EActionSkillStopReason::Forced);
+		SkillObject->Deactivate(ESkillStopReason::Forced);
 		UE_LOG(
-			LogActionSkill,
+			LogSkill,
 			Warning,
 			TEXT("SkillComponent[%s]: UseSkill failed because node map init failed. SkillId=%s"),
 			*GetNameSafe(GetOwner()),
@@ -241,20 +241,20 @@ bool UActionSkillComponent::UseSkill(FName SkillId, AActor* OptionalTarget, EAct
 	const FName BeginNodeId = SkillObject->GetSkillData().BeginNodeId;
 	if (!CanAffordNodeCost(BeginNodeId))
 	{
-		UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: UseSkill blocked — not enough SP for begin node %s."),
+		UE_LOG(LogSkill, Verbose, TEXT("SkillComponent[%s]: UseSkill blocked — not enough SP for begin node %s."),
 			*GetNameSafe(GetOwner()), *BeginNodeId.ToString());
-		StopSkill(EActionSkillStopReason::Forced);
+		StopSkill(ESkillStopReason::Forced);
 		return false;
 	}
 
 	PayNodeCost(BeginNodeId);
 	StartSkillNode(BeginNodeId);
 
-	UE_LOG(LogActionSkill, Log, TEXT("SkillComponent[%s]: UseSkill started. SkillId=%s"), *GetNameSafe(GetOwner()), *SkillId.ToString());
+	UE_LOG(LogSkill, Log, TEXT("SkillComponent[%s]: UseSkill started. SkillId=%s"), *GetNameSafe(GetOwner()), *SkillId.ToString());
 	return true;
 }
 
-void UActionSkillComponent::StopSkill(EActionSkillStopReason Reason)
+void UActionSkillComponent::StopSkill(ESkillStopReason Reason)
 {
 	if (CurrentSkillObject == nullptr)
 	{
@@ -285,7 +285,7 @@ void UActionSkillComponent::StopSkill(EActionSkillStopReason Reason)
 	OnSkillStateChanged.Broadcast(StoppedSkillId, false);
 
 	UE_LOG(
-		LogActionSkill,
+		LogSkill,
 		Log,
 		TEXT("SkillComponent[%s]: StopSkill. SkillId=%s Reason=%d"),
 		*GetNameSafe(GetOwner()),
@@ -295,7 +295,7 @@ void UActionSkillComponent::StopSkill(EActionSkillStopReason Reason)
 
 void UActionSkillComponent::OnSkillNotify(FName EventName)
 {
-	UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: Notify=%s"), *GetNameSafe(GetOwner()), *EventName.ToString());
+	UE_LOG(LogSkill, Verbose, TEXT("SkillComponent[%s]: Notify=%s"), *GetNameSafe(GetOwner()), *EventName.ToString());
 	if (CurrentSkillNode != nullptr)
 	{
 		CurrentSkillNode->OnNotify(EventName);
@@ -332,7 +332,7 @@ void UActionSkillComponent::OnTurnWindowNotify()
 	CurrentSkillNode->OnNotifyTurnWindow();
 }
 
-bool UActionSkillComponent::CheckCanCancelCurrentSkill(EActionSkillCancelFlag IncomingType) const
+bool UActionSkillComponent::CheckCanCancelCurrentSkill(ESkillCancelFlag IncomingType) const
 {
 	if (CurrentSkillObject == nullptr)
 	{
@@ -342,7 +342,7 @@ bool UActionSkillComponent::CheckCanCancelCurrentSkill(EActionSkillCancelFlag In
 	return CurrentSkillObject->CanBeCancelledBy(IncomingType) && IsSkillCancelWindowOpen(IncomingType);
 }
 
-bool UActionSkillComponent::TryCancelCurrentSkill(EActionSkillCancelFlag IncomingType, EActionSkillStopReason Reason)
+bool UActionSkillComponent::TryCancelCurrentSkill(ESkillCancelFlag IncomingType, ESkillStopReason Reason)
 {
 	if (CurrentSkillObject == nullptr)
 	{
@@ -352,7 +352,7 @@ bool UActionSkillComponent::TryCancelCurrentSkill(EActionSkillCancelFlag Incomin
 	if (!CheckCanCancelCurrentSkill(IncomingType))
 	{
 		UE_LOG(
-			LogActionSkill,
+			LogSkill,
 			Verbose,
 			TEXT("SkillComponent[%s]: cancel blocked. SkillId=%s IncomingType=%d"),
 			*GetNameSafe(GetOwner()),
@@ -365,7 +365,7 @@ bool UActionSkillComponent::TryCancelCurrentSkill(EActionSkillCancelFlag Incomin
 	return true;
 }
 
-bool UActionSkillComponent::IsSkillCancelWindowOpen(EActionSkillCancelFlag IncomingType) const
+bool UActionSkillComponent::IsSkillCancelWindowOpen(ESkillCancelFlag IncomingType) const
 {
 	if (CurrentSkillObject == nullptr)
 	{
@@ -394,7 +394,7 @@ void UActionSkillComponent::OpenSkillCancelWindow(
 		return;
 	}
 
-	ForEachCancelFlagInMask(CancelWindowMask, [this](EActionSkillCancelFlag Flag)
+	ForEachCancelFlagInMask(CancelWindowMask, [this](ESkillCancelFlag Flag)
 	{
 		AddWindowTagCount(GetSkillWindowTagForCancelFlag(Flag));
 	});
@@ -430,7 +430,7 @@ void UActionSkillComponent::CloseSkillCancelWindow(
 		return;
 	}
 
-	ForEachCancelFlagInMask(CancelWindowMask, [this](EActionSkillCancelFlag Flag)
+	ForEachCancelFlagInMask(CancelWindowMask, [this](ESkillCancelFlag Flag)
 	{
 		RemoveWindowTagCount(GetSkillWindowTagForCancelFlag(Flag));
 	});
@@ -468,16 +468,16 @@ void UActionSkillComponent::LoadSkillObjectsFromTable()
 
 	if (SkillDataTable == nullptr)
 	{
-		UE_LOG(LogActionSkill, Log, TEXT("SkillComponent[%s]: Loaded 0 skills from DataTable (table not configured)."), *GetNameSafe(GetOwner()));
+		UE_LOG(LogSkill, Log, TEXT("SkillComponent[%s]: Loaded 0 skills from DataTable (table not configured)."), *GetNameSafe(GetOwner()));
 		return;
 	}
 
-	if (SkillDataTable->GetRowStruct() != FActionSkillRow::StaticStruct())
+	if (SkillDataTable->GetRowStruct() != FSkillRow::StaticStruct())
 	{
 		UE_LOG(
-			LogActionSkill,
+			LogSkill,
 			Warning,
-			TEXT("SkillComponent[%s]: SkillDataTable row type mismatch. Expected FActionSkillRow."),
+			TEXT("SkillComponent[%s]: SkillDataTable row type mismatch. Expected FSkillRow."),
 			*GetNameSafe(GetOwner()));
 		return;
 	}
@@ -485,7 +485,7 @@ void UActionSkillComponent::LoadSkillObjectsFromTable()
 	const TMap<FName, uint8*>& RowMap = SkillDataTable->GetRowMap();
 	for (const TPair<FName, uint8*>& Pair : RowMap)
 	{
-		const FActionSkillRow* Row = reinterpret_cast<const FActionSkillRow*>(Pair.Value);
+		const FSkillRow* Row = reinterpret_cast<const FSkillRow*>(Pair.Value);
 		if (Row == nullptr)
 		{
 			continue;
@@ -503,7 +503,7 @@ void UActionSkillComponent::LoadSkillObjectsFromTable()
 	}
 
 	UE_LOG(
-		LogActionSkill,
+		LogSkill,
 		Log,
 		TEXT("SkillComponent[%s]: Loaded %d skills from DataTable."),
 		*GetNameSafe(GetOwner()),
@@ -512,7 +512,7 @@ void UActionSkillComponent::LoadSkillObjectsFromTable()
 
 void UActionSkillComponent::ClearSkillObjects()
 {
-	StopSkill(EActionSkillStopReason::Forced);
+	StopSkill(ESkillStopReason::Forced);
 	SkillObjectMap.Reset();
 }
 
@@ -523,23 +523,23 @@ bool UActionSkillComponent::StartSkillNode(FName NodeId)
 		StopActiveSkillMontage();
 		DeactivateCurrentSkillNode();
 		ClearActiveSkillWindows(false);
-		UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: skill has no BeginNode."), *GetNameSafe(GetOwner()));
+		UE_LOG(LogSkill, Verbose, TEXT("SkillComponent[%s]: skill has no BeginNode."), *GetNameSafe(GetOwner()));
 		return true;
 	}
 
-	const FActionSkillNodeRow* NodeRow = FindSkillNodeRow(NodeId);
+	const FSkillNodeRow* NodeRow = FindSkillNodeRow(NodeId);
 	UActionSkillNode* TargetNode = CurrentSkillObject != nullptr ? CurrentSkillObject->GetSkillNode(NodeId) : nullptr;
 	if (NodeRow == nullptr || CurrentSkillObject == nullptr || TargetNode == nullptr)
 	{
 		UE_LOG(
-			LogActionSkill,
+			LogSkill,
 			Warning,
 			TEXT("SkillComponent[%s]: failed to start skill node. NodeId=%s NodeRow=%s NodeObject=%s"),
 			*GetNameSafe(GetOwner()),
 			*NodeId.ToString(),
 			NodeRow != nullptr ? TEXT("Valid") : TEXT("None"),
 			TargetNode != nullptr ? TEXT("Valid") : TEXT("None"));
-		StopSkill(EActionSkillStopReason::Forced);
+		StopSkill(ESkillStopReason::Forced);
 		return false;
 	}
 
@@ -565,7 +565,7 @@ bool UActionSkillComponent::StartSkillNode(FName NodeId)
 	if (!PlayCurrentNodeMontage())
 	{
 		UE_LOG(
-			LogActionSkill,
+			LogSkill,
 			Warning,
 			TEXT("SkillComponent[%s]: node started without montage or montage failed. NodeId=%s"),
 			*GetNameSafe(GetOwner()),
@@ -619,7 +619,7 @@ void UActionSkillComponent::TickComboTimeline()
 	{
 		if (!CanAffordNodeCost(NextNodeId))
 		{
-			UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: combo transition blocked — not enough SP for node %s."),
+			UE_LOG(LogSkill, Verbose, TEXT("SkillComponent[%s]: combo transition blocked — not enough SP for node %s."),
 				*GetNameSafe(GetOwner()), *NextNodeId.ToString());
 		}
 		else
@@ -635,7 +635,7 @@ void UActionSkillComponent::TickComboTimeline()
 
 	if (CurrentSkillNode != nullptr && CurrentSkillNode->ShouldQuitSkill())
 	{
-		StopSkill(EActionSkillStopReason::Normal);
+		StopSkill(ESkillStopReason::Normal);
 	}
 }
 
@@ -669,7 +669,7 @@ bool UActionSkillComponent::CanAffordNodeCost(FName NodeId) const
 		return true;
 	}
 
-	const FActionSkillNodeRow* NodeRow = FindSkillNodeRow(NodeId);
+	const FSkillNodeRow* NodeRow = FindSkillNodeRow(NodeId);
 	if (NodeRow == nullptr || NodeRow->CostSP <= 0)
 	{
 		return true;
@@ -694,7 +694,7 @@ void UActionSkillComponent::PayNodeCost(FName NodeId)
 		return;
 	}
 
-	const FActionSkillNodeRow* NodeRow = FindSkillNodeRow(NodeId);
+	const FSkillNodeRow* NodeRow = FindSkillNodeRow(NodeId);
 	if (NodeRow == nullptr || NodeRow->CostSP <= 0)
 	{
 		return;
@@ -710,21 +710,21 @@ void UActionSkillComponent::PayNodeCost(FName NodeId)
 	}
 
 	AttrComp->ModifyAttribute(EAttributeType::SP, -static_cast<float>(NodeRow->CostSP));
-	UE_LOG(LogActionSkill, Verbose, TEXT("SkillComponent[%s]: paid SP cost %d for node %s. Remaining SP=%.0f"),
+	UE_LOG(LogSkill, Verbose, TEXT("SkillComponent[%s]: paid SP cost %d for node %s. Remaining SP=%.0f"),
 		*GetNameSafe(GetOwner()),
 		NodeRow->CostSP,
 		*NodeId.ToString(),
 		AttrComp->GetAttribute(EAttributeType::SP));
 }
 
-const FActionSkillNodeRow* UActionSkillComponent::FindSkillNodeRow(FName NodeId) const
+const FSkillNodeRow* UActionSkillComponent::FindSkillNodeRow(FName NodeId) const
 {
-	if (SkillNodeDataTable == nullptr || SkillNodeDataTable->GetRowStruct() != FActionSkillNodeRow::StaticStruct())
+	if (SkillNodeDataTable == nullptr || SkillNodeDataTable->GetRowStruct() != FSkillNodeRow::StaticStruct())
 	{
 		return nullptr;
 	}
 
-	return SkillNodeDataTable->FindRow<FActionSkillNodeRow>(NodeId, TEXT("ActionSkillComponent.FindSkillNodeRow"));
+	return SkillNodeDataTable->FindRow<FSkillNodeRow>(NodeId, TEXT("ActionSkillComponent.FindSkillNodeRow"));
 }
 
 UAnimInstance* UActionSkillComponent::GetOwnerAnimInstance() const
@@ -740,7 +740,7 @@ bool UActionSkillComponent::PlayCurrentNodeMontage()
 		return false;
 	}
 
-	const FActionSkillNodeRow& NodeData = CurrentSkillNode->GetNodeData();
+	const FSkillNodeRow& NodeData = CurrentSkillNode->GetNodeData();
 	if (NodeData.Montage == nullptr)
 	{
 		return false;
@@ -760,7 +760,7 @@ bool UActionSkillComponent::PlayCurrentNodeMontage()
 		AnimInstance->Montage_JumpToSection(NodeData.StartSection, ActiveSkillMontage);
 
 		UE_LOG(
-			LogActionSkill,
+			LogSkill,
 			Log,
 			TEXT("SkillComponent[%s]: JumpToSection. Skill=%s Node=%s Section=%s Montage=%s"),
 			*GetNameSafe(GetOwner()),
@@ -790,7 +790,7 @@ bool UActionSkillComponent::PlayCurrentNodeMontage()
 	AnimInstance->OnPlayMontageNotifyBegin.AddUniqueDynamic(this, &UActionSkillComponent::HandleSkillMontageNotifyBegin);
 
 	UE_LOG(
-		LogActionSkill,
+		LogSkill,
 		Log,
 		TEXT("SkillComponent[%s]: playing skill montage. Skill=%s Node=%s Montage=%s Duration=%.2f"),
 		*GetNameSafe(GetOwner()),
@@ -843,7 +843,7 @@ void UActionSkillComponent::DeactivateCurrentSkillNode()
 	}
 }
 
-void UActionSkillComponent::ApplyActiveSkillTags(const FActionSkillRow& SkillData)
+void UActionSkillComponent::ApplyActiveSkillTags(const FSkillRow& SkillData)
 {
 	ClearActiveSkillTags();
 

@@ -5,9 +5,9 @@
 #include "Engine/DataTable.h"
 #include "GameFramework/CharacterMovementComponent.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogActionSkillObject, Log, All);
+DEFINE_LOG_CATEGORY_STATIC(LogSkillObject, Log, All);
 
-void UActionSkillObject::InitFromData(AActionCharacterBase* InOwner, FName InSkillId, const FActionSkillRow& InSkillData)
+void UActionSkillObject::InitFromData(AActionCharacterBase* InOwner, FName InSkillId, const FSkillRow& InSkillData)
 {
 	OwnerCharacter = InOwner;
 	SkillId = InSkillId;
@@ -60,7 +60,7 @@ void UActionSkillObject::Activate(AActor* InTarget)
 	NodeMap.Reset();
 }
 
-void UActionSkillObject::Deactivate(EActionSkillStopReason Reason)
+void UActionSkillObject::Deactivate(ESkillStopReason Reason)
 {
 	if (!bActive)
 	{
@@ -74,7 +74,7 @@ void UActionSkillObject::Deactivate(EActionSkillStopReason Reason)
 	NodeMap.Reset();
 	LastStopReason = Reason;
 
-	if (Reason != EActionSkillStopReason::HitInterrupt || SkillData.bStartCooldownOnHitInterrupt)
+	if (Reason != ESkillStopReason::HitInterrupt || SkillData.bStartCooldownOnHitInterrupt)
 	{
 		CooldownRemaining = FMath::Max(0.0f, SkillData.Cooldown);
 	}
@@ -102,10 +102,10 @@ bool UActionSkillObject::InitSkillNodes(
 
 	if (OwnerComponent == nullptr
 		|| SkillNodeDataTable == nullptr
-		|| SkillNodeDataTable->GetRowStruct() != FActionSkillNodeRow::StaticStruct())
+		|| SkillNodeDataTable->GetRowStruct() != FSkillNodeRow::StaticStruct())
 	{
 		UE_LOG(
-			LogActionSkillObject,
+			LogSkillObject,
 			Warning,
 			TEXT("SkillObject[%s]: cannot init nodes because node table is invalid."),
 			*SkillId.ToString());
@@ -125,7 +125,7 @@ UActionSkillNode* UActionSkillObject::GetSkillNode(FName NodeId) const
 	return nullptr;
 }
 
-bool UActionSkillObject::CanBeCancelledBy(EActionSkillCancelFlag IncomingType) const
+bool UActionSkillObject::CanBeCancelledBy(ESkillCancelFlag IncomingType) const
 {
 	const int32 IncomingMask = static_cast<int32>(IncomingType);
 	return IncomingMask != 0 && (SkillData.AllowCancelBy & IncomingMask) != 0;
@@ -152,13 +152,13 @@ bool UActionSkillObject::InitSkillNodeRecursive(
 		return true;
 	}
 
-	const FActionSkillNodeRow* NodeRow = SkillNodeDataTable->FindRow<FActionSkillNodeRow>(
+	const FSkillNodeRow* NodeRow = SkillNodeDataTable->FindRow<FSkillNodeRow>(
 		NodeId,
 		TEXT("ActionSkillObject.InitSkillNodeRecursive"));
 	if (NodeRow == nullptr)
 	{
 		UE_LOG(
-			LogActionSkillObject,
+			LogSkillObject,
 			Warning,
 			TEXT("SkillObject[%s]: node row not found. NodeId=%s"),
 			*SkillId.ToString(),

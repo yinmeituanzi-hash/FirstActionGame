@@ -201,7 +201,7 @@ protected:
 
 	void InitializeFeatures();
 	UActionFeatureBase* CreateFeatureInstance(TSubclassOf<UActionFeatureBase> FeatureClass);
-	bool TryCancelCurrentSkillForInput(EActionSkillCancelFlag IncomingType, EActionSkillStopReason StopReason);
+	bool TryCancelCurrentSkillForInput(ESkillCancelFlag IncomingType, ESkillStopReason StopReason);
 	void TryMoveCancelCurrentSkill();
 
 	UFUNCTION()

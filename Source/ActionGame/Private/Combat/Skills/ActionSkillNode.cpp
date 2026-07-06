@@ -5,19 +5,19 @@
 #include "Char/ActionCharacterBase.h"
 #include "Char/ActionCharacterMovementComponent.h"
 #include "Combat/Skills/ActionSkillComponent.h"
-#include "Combat/Skills/ActionSkillEffectLibrary.h"
+#include "Combat/Skills/SkillEffectLibrary.h"
 #include "Combat/Skills/ActionSkillObject.h"
 #include "Components/CapsuleComponent.h"
 #include "Engine/DataTable.h"
 #include "Input/InputBufferComponent.h"
 
-DEFINE_LOG_CATEGORY_STATIC(LogActionSkillNode, Log, All);
+DEFINE_LOG_CATEGORY_STATIC(LogSkillNode, Log, All);
 
 void UActionSkillNode::InitFromData(
 	UActionSkillComponent* InOwnerComponent,
 	UActionSkillObject* InSkillObject,
 	FName InNodeId,
-	const FActionSkillNodeRow& InNodeData,
+	const FSkillNodeRow& InNodeData,
 	UDataTable* InSkillEffectDataTable)
 {
 	OwnerComponent = InOwnerComponent;
@@ -78,7 +78,7 @@ void UActionSkillNode::OnNotify(FName EventName)
 	if (EffectIds == nullptr)
 	{
 		UE_LOG(
-			LogActionSkillNode,
+			LogSkillNode,
 			Verbose,
 			TEXT("SkillNode[%s]: Notify=%s has no mapped effects."),
 			*NodeId.ToString(),
@@ -97,7 +97,7 @@ void UActionSkillNode::OnNotifyNextCombo(FName InputName, FName HoldType)
 	LastMatchedComboInputName = NAME_None;
 
 	UE_LOG(
-		LogActionSkillNode,
+		LogSkillNode,
 		Verbose,
 		TEXT("SkillNode[%s]: combo window opened. Input=%s Hold=%s Next=%s Branch=%s"),
 		*NodeId.ToString(),
@@ -117,7 +117,7 @@ void UActionSkillNode::OnNotifyTurnWindow()
 	bCanTurnNextNode = true;
 
 	UE_LOG(
-		LogActionSkillNode,
+		LogSkillNode,
 		Verbose,
 		TEXT("SkillNode[%s]: turn window opened."),
 		*NodeId.ToString());
@@ -182,7 +182,7 @@ void UActionSkillNode::HandleMontageEndSkillQuit()
 
 	bQuitSkillFlag = true;
 	UE_LOG(
-		LogActionSkillNode,
+		LogSkillNode,
 		Verbose,
 		TEXT("SkillNode[%s]: montage stopped playing, mark QuitSkill. Montage=%s"),
 		*NodeId.ToString(),
@@ -197,7 +197,7 @@ bool UActionSkillNode::HasValidInput() const
 
 void UActionSkillNode::BuildEffectIndex(UDataTable* InSkillEffectDataTable)
 {
-	if (InSkillEffectDataTable == nullptr || InSkillEffectDataTable->GetRowStruct() != FActionSkillEffectRow::StaticStruct())
+	if (InSkillEffectDataTable == nullptr || InSkillEffectDataTable->GetRowStruct() != FSkillEffectRow::StaticStruct())
 	{
 		return;
 	}
@@ -209,13 +209,13 @@ void UActionSkillNode::BuildEffectIndex(UDataTable* InSkillEffectDataTable)
 			continue;
 		}
 
-		const FActionSkillEffectRow* EffectRow = InSkillEffectDataTable->FindRow<FActionSkillEffectRow>(
+		const FSkillEffectRow* EffectRow = InSkillEffectDataTable->FindRow<FSkillEffectRow>(
 			EffectId,
 			TEXT("ActionSkillNode.BuildEffectIndex"));
 		if (EffectRow == nullptr)
 		{
 			UE_LOG(
-				LogActionSkillNode,
+				LogSkillNode,
 				Warning,
 				TEXT("SkillNode[%s]: Effect row not found. EffectId=%s"),
 				*NodeId.ToString(),
@@ -225,13 +225,13 @@ void UActionSkillNode::BuildEffectIndex(UDataTable* InSkillEffectDataTable)
 
 		switch (EffectRow->ExecuteTiming)
 		{
-		case EActionSkillEffectTiming::Enter:
+		case ESkillEffectTiming::Enter:
 			EffectsWhenEnter.Add(EffectId);
 			break;
-		case EActionSkillEffectTiming::Leave:
+		case ESkillEffectTiming::Leave:
 			EffectsWhenLeave.Add(EffectId);
 			break;
-		case EActionSkillEffectTiming::Notify:
+		case ESkillEffectTiming::Notify:
 			if (!EffectRow->NotifyName.IsNone())
 			{
 				NotifyEffectMap.FindOrAdd(EffectRow->NotifyName).Add(EffectId);
@@ -253,10 +253,10 @@ void UActionSkillNode::ExecuteEffects(const TArray<FName>& EffectIds, const FStr
 	UActionSkillComponent* SkillComponent = OwnerComponent.Get();
 	UActionSkillObject* Skill = SkillObject.Get();
 	const FName SkillId = Skill != nullptr ? Skill->GetSkillId() : NAME_None;
-	if (SkillEffectDataTable == nullptr || SkillEffectDataTable->GetRowStruct() != FActionSkillEffectRow::StaticStruct())
+	if (SkillEffectDataTable == nullptr || SkillEffectDataTable->GetRowStruct() != FSkillEffectRow::StaticStruct())
 	{
 		UE_LOG(
-			LogActionSkillNode,
+			LogSkillNode,
 			Warning,
 			TEXT("SkillNode[%s]: cannot execute effects because SkillEffectDataTable is invalid. Skill=%s Timing=%s"),
 			*NodeId.ToString(),
@@ -265,17 +265,17 @@ void UActionSkillNode::ExecuteEffects(const TArray<FName>& EffectIds, const FStr
 		return;
 	}
 
-	FActionSkillEffectContext Context;
+	FSkillEffectContext Context;
 
 	for (const FName EffectId : EffectIds)
 	{
-		const FActionSkillEffectRow* EffectRow = SkillEffectDataTable->FindRow<FActionSkillEffectRow>(
+		const FSkillEffectRow* EffectRow = SkillEffectDataTable->FindRow<FSkillEffectRow>(
 			EffectId,
 			TEXT("ActionSkillNode.ExecuteEffects"));
 		if (EffectRow == nullptr)
 		{
 			UE_LOG(
-				LogActionSkillNode,
+				LogSkillNode,
 				Warning,
 				TEXT("SkillNode[%s]: Effect row not found at execution. EffectId=%s Skill=%s Timing=%s"),
 				*NodeId.ToString(),
@@ -286,7 +286,7 @@ void UActionSkillNode::ExecuteEffects(const TArray<FName>& EffectIds, const FStr
 		}
 
 		UE_LOG(
-			LogActionSkillNode,
+			LogSkillNode,
 			Log,
 			TEXT("SkillNode[%s]: Executing Effect=%s Skill=%s Timing=%s"),
 			*NodeId.ToString(),
@@ -294,7 +294,7 @@ void UActionSkillNode::ExecuteEffects(const TArray<FName>& EffectIds, const FStr
 			*SkillId.ToString(),
 			*TimingText);
 
-		UActionSkillEffectLibrary::ExecuteEffect(this, SkillComponent, Skill, this, EffectId, *EffectRow, Context);
+		USkillEffectLibrary::ExecuteEffect(this, SkillComponent, Skill, this, EffectId, *EffectRow, Context);
 	}
 }
 
@@ -357,7 +357,7 @@ void UActionSkillNode::ApplyRootMotionSettings()
 			{
 				EffectiveScale = 0.0f;
 				UE_LOG(
-					LogActionSkillNode,
+					LogSkillNode,
 					Verbose,
 					TEXT("SkillNode[%s]: RootMotion disabled — distance %.1f <= threshold %.1f (radius=%.1f * capsule=%.1f)"),
 					*NodeId.ToString(),
@@ -379,7 +379,7 @@ void UActionSkillNode::ApplyRootMotionSettings()
 	bAppliedRootMotionOverride = true;
 
 	UE_LOG(
-		LogActionSkillNode,
+		LogSkillNode,
 		Verbose,
 		TEXT("SkillNode[%s]: RootMotion applied. Scale=%.2f"),
 		*NodeId.ToString(),

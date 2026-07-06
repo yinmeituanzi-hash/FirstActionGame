@@ -143,7 +143,7 @@ void AActionCharacterBase::Die()
 
 	if (SkillComponent != nullptr && SkillComponent->IsUsingSkill())
 	{
-		SkillComponent->StopSkill(EActionSkillStopReason::Death);
+		SkillComponent->StopSkill(ESkillStopReason::Death);
 	}
 
 	SetActionState(EActionCharacterState::Dead);

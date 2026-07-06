@@ -62,7 +62,7 @@ EBTNodeResult::Type UBTTask_UseSkill::ExecuteTask(UBehaviorTreeComponent& OwnerC
 
 	// 010 的 UseSkill Task 也是先做可用性检查，失败就立即 Failed。
 	// 冷却中且还没真正启动技能时，不能卡在本节点，否则目标跑远后会原地放空技能。
-	if (!SkillComponent->CanUseSkill(ResolvedSkillId, EActionSkillCancelFlag::Skill))
+	if (!SkillComponent->CanUseSkill(ResolvedSkillId, ESkillCancelFlag::Skill))
 	{
 		return EBTNodeResult::Failed;
 	}
@@ -102,7 +102,7 @@ void UBTTask_UseSkill::TickTask(UBehaviorTreeComponent& OwnerComp, uint8* NodeMe
 	if (Memory->ElapsedTime >= MaxExecutionTime)
 	{
 		// 技能时间线异常时的兜底。正常技能应通过 Montage / QuitSkill 自然结束。
-		SkillComponent->StopSkill(EActionSkillStopReason::Forced);
+		SkillComponent->StopSkill(ESkillStopReason::Forced);
 		FinishLatentTask(OwnerComp, EBTNodeResult::Succeeded);
 	}
 }
@@ -120,7 +120,7 @@ EBTNodeResult::Type UBTTask_UseSkill::AbortTask(UBehaviorTreeComponent& OwnerCom
 				{
 					if (SkillComponent->GetCurrentSkillId() == Memory->StartedSkillId)
 					{
-						SkillComponent->StopSkill(EActionSkillStopReason::Forced);
+						SkillComponent->StopSkill(ESkillStopReason::Forced);
 					}
 				}
 			}
@@ -167,7 +167,7 @@ bool UBTTask_UseSkill::TryStartSkill(UBehaviorTreeComponent& OwnerComp, FBTUseSk
 		return false;
 	}
 
-	if (ResolvedSkillId.IsNone() || !SkillComponent->CanUseSkill(ResolvedSkillId, EActionSkillCancelFlag::Skill))
+	if (ResolvedSkillId.IsNone() || !SkillComponent->CanUseSkill(ResolvedSkillId, ESkillCancelFlag::Skill))
 	{
 		return false;
 	}
@@ -178,7 +178,7 @@ bool UBTTask_UseSkill::TryStartSkill(UBehaviorTreeComponent& OwnerComp, FBTUseSk
 		return false;
 	}
 
-	if (!SkillComponent->UseSkill(ResolvedSkillId, TargetActor, EActionSkillCancelFlag::Skill))
+	if (!SkillComponent->UseSkill(ResolvedSkillId, TargetActor, ESkillCancelFlag::Skill))
 	{
 		return false;
 	}

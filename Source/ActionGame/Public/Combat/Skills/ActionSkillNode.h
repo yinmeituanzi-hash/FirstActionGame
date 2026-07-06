@@ -25,7 +25,7 @@ public:
 		UActionSkillComponent* InOwnerComponent,
 		UActionSkillObject* InSkillObject,
 		FName InNodeId,
-		const FActionSkillNodeRow& InNodeData,
+		const FSkillNodeRow& InNodeData,
 		UDataTable* InSkillEffectDataTable);
 
 	void Activate();
@@ -52,7 +52,7 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Action|Skill|Node")
 	FName GetNodeId() const { return NodeId; }
 
-	const FActionSkillNodeRow& GetNodeData() const { return NodeData; }
+	const FSkillNodeRow& GetNodeData() const { return NodeData; }
 	FVector GetActivationLocation() const { return ActivationLocation; }
 	FRotator GetActivationRotation() const { return ActivationRotation; }
 
@@ -70,7 +70,7 @@ private:
 	FName NodeId = NAME_None;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Action|Skill|Node", meta = (AllowPrivateAccess = "true"))
-	FActionSkillNodeRow NodeData;
+	FSkillNodeRow NodeData;
 
 	UPROPERTY(Transient)
 	TObjectPtr<UDataTable> SkillEffectDataTable = nullptr;

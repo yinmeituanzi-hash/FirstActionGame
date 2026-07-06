@@ -110,7 +110,7 @@ void UBTService_PickCombatSkill::TickNode(UBehaviorTreeComponent& OwnerComp, uin
 		}
 
 		Candidate.bInRange = DistanceToTarget >= Candidate.MinRange && DistanceToTarget <= Candidate.MaxRange;
-		Candidate.bCanUseNow = SkillComponent->CanUseSkill(Candidate.SkillId, EActionSkillCancelFlag::Skill);
+		Candidate.bCanUseNow = SkillComponent->CanUseSkill(Candidate.SkillId, ESkillCancelFlag::Skill);
 
 		if (Candidate.bCanUseNow && Candidate.bInRange)
 		{

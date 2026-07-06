@@ -19,7 +19,7 @@ class ACTIONGAME_API UAnimNotifyState_ActionSkillCancelWindow : public UAnimNoti
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Skill", meta = (Bitmask, BitmaskEnum = "/Script/ActionGame.EActionSkillCancelFlag"))
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Skill", meta = (Bitmask, BitmaskEnum = "/Script/ActionGame.ESkillCancelFlag"))
 	int32 CancelWindowMask = 0;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Action|Skill")
